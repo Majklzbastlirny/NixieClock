@@ -95,8 +95,22 @@ bool netcfg_is_provisioned(void)
 
 void netcfg_factory_reset(void)
 {
-    ESP_LOGW(TAG, "FACTORY RESET: erasing NVS and rebooting");
+    ESP_LOGW(TAG, "FACTORY RESET: erasing NVS and rebooting into setup");
     nvs_flash_erase();          // wipes creds (this "net" ns) + settings ("clock")
+
+    // The wipe alone isn't enough: secrets.h is still compiled in as a fallback,
+    // so the next boot would silently reconnect to that network. Re-init NVS and
+    // set the one-shot provisioning flag (key "provreq", read by provision_requested)
+    // so the device comes up in SoftAP setup mode instead, truly "forgotten".
+    if (nvs_flash_init() == ESP_OK) {
+        nvs_handle_t h;
+        if (nvs_open(NS, NVS_READWRITE, &h) == ESP_OK) {
+            nvs_set_u8(h, "provreq", 1);
+            nvs_commit(h);
+            nvs_close(h);
+        }
+    }
+
     vTaskDelay(pdMS_TO_TICKS(300));   // let any in-flight log/HTTP flush
     esp_restart();
     for (;;) { }                // unreachable; satisfies noreturn
