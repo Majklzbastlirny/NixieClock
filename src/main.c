@@ -27,6 +27,7 @@
 #include "buzzer.h"
 #include "webui.h"
 #include "provision.h"
+#include "netcfg.h"
 
 #include <time.h>
 #include <sys/time.h>
@@ -264,9 +265,7 @@ static void on_button(button_event_t ev)
         provision_request_reboot();
         break;
     case BTN_FACTORY_RESET:
-        ESP_LOGW(TAG, "FACTORY RESET: erasing NVS and rebooting");
-        nvs_flash_erase();
-        esp_restart();
+        netcfg_factory_reset();   // erases NVS + reboots (does not return)
         break;
     case BTN_SNOOZE_SHORT:
         alarm_snooze();

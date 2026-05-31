@@ -98,6 +98,11 @@ static const char PAGE[] =
 "<label>MQTT status <span id='mqtt' class='s'></span></label>"
 "</fieldset>"
 
+"<h2>System</h2><fieldset>"
+"<label><span class='m'>Erases WiFi/MQTT credentials and all settings, then reboots into setup.</span>"
+"<button onclick='freset()' style='color:#f66'>Factory reset</button></label>"
+"</fieldset>"
+
 "<script>"
 "var S={};"
 "function post(u,b){return fetch(u,{method:'POST',body:b||''}).then(r=>r.json()).then(render)}"
@@ -130,6 +135,8 @@ static const char PAGE[] =
 "function savenet(){var b='ssid='+gv('n_ssid')+'&pass='+gv('n_pass')+'&mhost='+gv('n_mhost')"
 "+'&mport='+gv('n_mport')+'&muser='+gv('n_muser')+'&mpass='+gv('n_mpass');"
 "fetch('/api/netset',{method:'POST',body:b}).then(r=>r.text()).then(function(t){alert(t);loadnet();});}"
+"function freset(){if(confirm('Factory reset? This erases WiFi/MQTT credentials and all settings, then reboots into setup mode.'))"
+"fetch('/api/action?a=factory_reset',{method:'POST',body:'RESET'});}"
 "refresh();loadnet();setInterval(refresh,3000);"
 "</script></body></html>";
 
@@ -205,6 +212,16 @@ static esp_err_t action_post(httpd_req_t *req)
         return ESP_OK;
     }
     int blen = read_body(req, body, sizeof(body));
+
+    if (!strcmp(a, "factory_reset")) {
+        // Require the token from the confirmed UI press before wiping NVS.
+        if (blen == 5 && !strncmp(body, "RESET", 5)) {
+            httpd_resp_sendstr(req, "Resetting...");
+            netcfg_factory_reset();   // erases NVS + reboots (does not return)
+        }
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "factory_reset needs token");
+        return ESP_OK;
+    }
 
     if (!strcmp(a, "antipoison_now"))   antipoison_trigger();
     else if (!strcmp(a, "alarm_snooze")) alarm_snooze();

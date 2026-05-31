@@ -327,6 +327,14 @@ static void publish_discovery(void)
     disc("binary_sensor", "night_active", "Night active", "night_active", "");
     disc("binary_sensor", "rtc", "RTC present", "rtc", "");
 
+    // Factory reset (destructive): a button whose press payload is a fixed token,
+    // so a stray/retained empty message can't trigger a wipe. Marked as a config
+    // entity + restart device-class so HA styles it as a system action.
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/factory_reset\",\"payload_press\":\"RESET\","
+        "\"entity_category\":\"config\",\"device_class\":\"restart\"", s_cmd);
+    disc_cmd("button", "factory_reset", "Factory reset", ex);
+
     ESP_LOGI(TAG, "published HA discovery for %s", s_node);
 }
 
@@ -353,6 +361,15 @@ static void handle_command(const char *topic, int tlen, const char *data, int dl
     }
     if (ISN("alarm_snooze_now")) { alarm_snooze();  publish_state(); return; }
     if (ISN("alarm_dismiss"))    { alarm_dismiss(); publish_state(); return; }
+    if (ISN("factory_reset")) {
+        // Require the exact token so an accidental/empty payload can't wipe NVS.
+        if (vl == 5 && strncmp(val, "RESET", 5) == 0) {
+            ESP_LOGW(TAG, "factory_reset command accepted");
+            netcfg_factory_reset();   // erases NVS + reboots (does not return)
+        }
+        ESP_LOGW(TAG, "factory_reset ignored (bad token '%s')", val);
+        return;
+    }
     if (ISN("temp1_input") || ISN("temp2_input")) {
         int slot = (name[4] == '2') ? 1 : 0;
         int centi = parse_centi(val);

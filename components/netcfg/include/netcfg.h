@@ -38,3 +38,9 @@ bool netcfg_set_mqtt(const char *host, const char *port,
 // True if WiFi credentials have been stored in NVS (i.e. the device has been
 // provisioned at least once, as opposed to running on secrets.h defaults).
 bool netcfg_is_provisioned(void);
+
+// Erase ALL of NVS (credentials + settings) and reboot. The device comes back
+// unprovisioned and, with no secrets.h fallback SSID, enters SoftAP setup. This
+// does not return. Destructive — callers should gate it behind a deliberate
+// action (button long-hold, confirmed UI press).
+void netcfg_factory_reset(void) __attribute__((noreturn));

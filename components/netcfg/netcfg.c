@@ -4,7 +4,11 @@
 #include <string.h>
 
 #include "nvs.h"
+#include "nvs_flash.h"
+#include "esp_system.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "netcfg";
 #define NS "net"
@@ -87,4 +91,13 @@ bool netcfg_is_provisioned(void)
     bool has = (nvs_get_str(h, "wifi_ssid", ssid, &len) == ESP_OK && ssid[0]);
     nvs_close(h);
     return has;
+}
+
+void netcfg_factory_reset(void)
+{
+    ESP_LOGW(TAG, "FACTORY RESET: erasing NVS and rebooting");
+    nvs_flash_erase();          // wipes creds (this "net" ns) + settings ("clock")
+    vTaskDelay(pdMS_TO_TICKS(300));   // let any in-flight log/HTTP flush
+    esp_restart();
+    for (;;) { }                // unreachable; satisfies noreturn
 }
