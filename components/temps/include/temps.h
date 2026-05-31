@@ -45,6 +45,20 @@ void temps_set_mqtt(int slot, int centi);
 // TEMP_ROM_STRLEN-char buffers. Returns the count written (capped at max).
 int temps_list_roms(char out[][TEMP_ROM_STRLEN], int max);
 
+// One discovered DS18B20 with its latest reading. `valid` is false when the
+// sensor has not been read yet or its last reading is stale.
+typedef struct {
+    char    rom[TEMP_ROM_STRLEN];   // 16-hex ROM address
+    int16_t centi;                  // last reading, centi-degrees C
+    bool    valid;                  // centi holds a fresh reading
+} temps_ds_info_t;
+
+// List every DS18B20 on the bus with its current temperature, regardless of
+// whether it is assigned to a display slot. The poll task reads ALL discovered
+// sensors, so this works for sensors that only feed Home Assistant. Returns the
+// count written (capped at max).
+int temps_list_ds(temps_ds_info_t *out, int max);
+
 // Bumped whenever the set of discovered ROMs changes, so callers (MQTT) can
 // refresh any "pick a sensor" UI.
 uint32_t temps_scan_generation(void);

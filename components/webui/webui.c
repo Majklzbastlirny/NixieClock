@@ -30,6 +30,9 @@ static const char PAGE[] =
 "input,select,button{background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:.3rem}"
 "input[type=range]{flex:1}button{cursor:pointer;padding:.4rem .8rem}"
 ".s{color:#9c9;font-size:.85rem}.r{color:#f66}"
+".ds{display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin:.3rem 0}"
+".ds code{color:#fa3}.ds .t{color:#eee;min-width:4rem;text-align:right}"
+".ds button{padding:.2rem .5rem;font-size:.8rem}"
 "</style></head><body><h1>Nixie Clock</h1>"
 "<div class='s' id='status'>loading...</div>"
 
@@ -76,13 +79,13 @@ static const char PAGE[] =
 "<option>none</option><option>mqtt</option><option>ds18b20</option></select></label>"
 "<label>Slot 1 value <span><input id='temp1_in' size='6'>"
 "<button onclick=\"inp(1)\">Set</button> <span id='temp1'></span></span></label>"
-"<label>Slot 1 ROM <input id='temp1_rom' size='16' onchange='set(this)'></label>"
 "<label>Slot 2 source <select id='temp2_source' onchange='set(this)'>"
 "<option>none</option><option>mqtt</option><option>ds18b20</option></select></label>"
 "<label>Slot 2 value <span><input id='temp2_in' size='6'>"
 "<button onclick=\"inp(2)\">Set</button> <span id='temp2'></span></span></label>"
-"<label>Slot 2 ROM <input id='temp2_rom' size='16' onchange='set(this)'></label>"
-"<label>Found sensors <span class='s' id='ds_roms'></span></label>"
+"<div class='s' style='margin:.5rem 0 .2rem'>DS18B20 sensors on the bus "
+"(assign one to a slot to show it on the tubes):</div>"
+"<div id='dslist' class='s'>scanning...</div>"
 "</fieldset>"
 
 "<h2>Network</h2><fieldset>"
@@ -121,12 +124,22 @@ static const char PAGE[] =
 "function tv(x){return(x&&x!='unknown')?(x+'\\u00b0C'):'--';}"
 "document.getElementById('temp1').textContent=tv(s.temp1);"
 "document.getElementById('temp2').textContent=tv(s.temp2);"
-"document.getElementById('ds_roms').textContent=s.ds_roms||'none';"
+"dslist(s.ds||[]);"
 "document.getElementById('mqtt').textContent=(s.mqtt=='ON'?'connected':'not connected');"
 "if(document.activeElement.name!='dow')setdow(s.alarm_dow);}"
 "function setdow(m){var b=document.getElementsByName('dow');for(var i=0;i<7;i++)b[i].checked=!!(m&(1<<i));}"
 "function getdow(){var b=document.getElementsByName('dow'),m=0;for(var i=0;i<7;i++)if(b[i].checked)m|=(1<<i);"
 "post('/api/set?k=alarm_dow',''+m);}"
+"function dslist(a){var h='';for(var i=0;i<a.length;i++){var d=a[i];"
+"var t=(d.t&&d.t!='unknown')?(d.t+'\\u00b0C'):'--';"
+"h+=\"<div class='ds'><code>\"+d.rom+\"</code><span class='t'>\"+t+\"</span><span>\";"
+"if(d.slot)h+='slot '+d.slot+' <button onclick=dsun('+d.slot+')>Unassign</button>';"
+"else h+='<button onclick=dsas(1,'+i+')>&#8594;1</button> <button onclick=dsas(2,'+i+')>&#8594;2</button>';"
+"h+='</span></div>';}"
+"document.getElementById('dslist').innerHTML=a.length?h:'none found';}"
+"function dsas(n,i){var rom=(S.ds&&S.ds[i])?S.ds[i].rom:'';if(!rom)return;"
+"post('/api/set?k=temp'+n+'_source','ds18b20').then(function(){post('/api/set?k=temp'+n+'_rom',rom);});}"
+"function dsun(n){post('/api/set?k=temp'+n+'_source','none').then(function(){post('/api/set?k=temp'+n+'_rom','');});}"
 "function refresh(){fetch('/api/state').then(r=>r.json()).then(render)}"
 "function loadnet(){fetch('/api/net').then(r=>r.json()).then(function(n){"
 "document.getElementById('n_ssid').value=n.wifi_ssid;document.getElementById('n_mhost').value=n.mqtt_host;"
@@ -148,7 +161,7 @@ static esp_err_t root_get(httpd_req_t *req)
 
 static void send_state(httpd_req_t *req)
 {
-    char buf[1200];
+    char buf[1700];
     int n = control_state_json(buf, sizeof(buf));
     // Splice in the live MQTT-connected flag (control can't depend on mqttctrl
     // without a cycle, so add it here): replace the trailing '}' with the field.
@@ -309,6 +322,9 @@ void webui_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;
     cfg.max_uri_handlers = 10;
+    // The state handler builds a ~1.7 KB JSON buffer plus the DS-sensor list on
+    // the stack; the default 4 KB httpd task stack overflows. Give it room.
+    cfg.stack_size = 8192;
 
     httpd_handle_t srv = NULL;
     if (httpd_start(&srv, &cfg) != ESP_OK) {

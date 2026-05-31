@@ -71,6 +71,17 @@ dead-time**, that's the ghosting fix), `i2cbus` (shared I²C + scanner), `rtcdev
 - **New files:** write them in one `Write` call. Sequential `Edit`s on a
   just-created file have interleaved/scrambled content this session — and `Read`
   output was occasionally garbled too. Prefer `Grep` to verify a specific line.
+- **Task stacks vs. state-JSON buffers (burned us):** the full device-state JSON
+  (`control_state_json` / `mqttctrl publish_state`) is built in a ~1.5 KB stack
+  buffer, plus per-entity discovery buffers (~800 B) and the DS-sensor list. The
+  default 4 KB FreeRTOS task stack overflows under that. The three surfaces that
+  build state run with bumped stacks: **webui httpd `cfg.stack_size = 8192`**,
+  **`mqtt_state` task = 8192** (`xTaskCreate`), and the **esp-mqtt client task
+  `.task.stack_size = 8192`** (set in `build_cfg`, it runs the connect/command
+  event handler that publishes discovery + state). If you grow the state payload
+  or add entities, watch these — a "stack overflow in task httpd/mqtt_state"
+  panic is this, not a logic bug. Prefer bumping the stack over `static` buffers
+  (mqtt_state and the client task can both call `publish_state` → races).
 - **Credentials policy (important, recently fixed):** `secrets.h`
   (`components/common/include/`, gitignored) is a **first-boot fallback ONLY**.
   Once a WiFi SSID is in NVS (device provisioned), `netcfg` trusts NVS

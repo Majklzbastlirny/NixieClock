@@ -35,16 +35,26 @@ typedef struct {
     ds18b20_device_handle_t  dev;
 } ds_dev_t;
 
+// Guarded snapshot of discovered devices + their latest reading. Built/updated
+// by the poll task under s_lock; read by temps_list_roms()/temps_list_ds() from
+// other tasks (MQTT, web UI). We poll EVERY discovered sensor, so a sensor that
+// only feeds Home Assistant (not assigned to a slot) still has a live reading.
+typedef struct {
+    uint64_t addr;
+    int16_t  centi;
+    int64_t  ts_ms;       // 0 = never read
+} ds_snap_t;
+
 static slot_t            s_slot[TEMP_SLOTS];
 static SemaphoreHandle_t s_lock;
 
-// 1-Wire / DS18B20 state (touched only by the poll task except the ROM list,
-// which is guarded by s_lock so MQTT can read it).
+// 1-Wire / DS18B20 state. s_dev[] is touched only by the poll task; s_snap[] is
+// the s_lock-guarded view the world reads.
 static onewire_bus_handle_t s_bus;
 static ds_dev_t          s_dev[MAX_DS];
 static int               s_dev_count;
-static uint64_t          s_roms[MAX_DS];   // snapshot for temps_list_roms()
-static int               s_rom_count;
+static ds_snap_t         s_snap[MAX_DS];
+static int               s_snap_count;
 static volatile uint32_t s_scan_gen;
 
 static int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
@@ -134,10 +144,29 @@ int temps_list_roms(char out[][TEMP_ROM_STRLEN], int max)
 {
     int n = 0;
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    for (int i = 0; i < s_rom_count && n < max; i++) {
+    for (int i = 0; i < s_snap_count && n < max; i++) {
         uint8_t b[8];
-        memcpy(b, &s_roms[i], 8);
+        memcpy(b, &s_snap[i].addr, 8);
         temps_rom_to_str(b, out[n++]);
+    }
+    xSemaphoreGive(s_lock);
+    return n;
+}
+
+int temps_list_ds(temps_ds_info_t *out, int max)
+{
+    int n = 0;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    int64_t t = now_ms();
+    for (int i = 0; i < s_snap_count && n < max; i++) {
+        uint8_t b[8];
+        memcpy(b, &s_snap[i].addr, 8);
+        temps_rom_to_str(b, out[n].rom);
+        bool fresh = s_snap[i].ts_ms != 0 && (t - s_snap[i].ts_ms) < FRESH_MS &&
+                     s_snap[i].centi != TEMP_CENTI_INVALID;
+        out[n].valid = fresh;
+        out[n].centi = fresh ? s_snap[i].centi : TEMP_CENTI_INVALID;
+        n++;
     }
     xSemaphoreGive(s_lock);
     return n;
@@ -146,8 +175,9 @@ int temps_list_roms(char out[][TEMP_ROM_STRLEN], int max)
 uint32_t temps_scan_generation(void) { return s_scan_gen; }
 
 // --- 1-Wire bus -------------------------------------------------------------
-// Enumerate the bus, (re)building the DS18B20 device table. Updates the ROM
-// snapshot + scan generation if the set changed.
+// Enumerate the bus, (re)building the DS18B20 device table. Rebuilds the guarded
+// snapshot (carrying forward readings for sensors that are still present) and
+// bumps the scan generation if the set of addresses changed.
 static void scan_bus(void)
 {
     if (!s_bus) return;
@@ -177,39 +207,50 @@ static void scan_bus(void)
     }
     onewire_del_device_iter(iter);
 
-    // Publish the ROM snapshot (guarded) and bump the generation if it changed.
+    // Rebuild the snapshot under the lock, preserving readings for addresses
+    // that are still on the bus, and bump the generation if the set changed.
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    bool changed = (s_dev_count != s_rom_count);
-    for (int i = 0; i < s_dev_count && !changed; i++)
-        if (s_roms[i] != s_dev[i].addr) changed = true;
-    if (changed) {
-        for (int i = 0; i < s_dev_count; i++) s_roms[i] = s_dev[i].addr;
-        s_rom_count = s_dev_count;
-        s_scan_gen++;
+    ds_snap_t old[MAX_DS];
+    int oldn = s_snap_count;
+    memcpy(old, s_snap, sizeof(old));
+
+    bool changed = (s_dev_count != oldn);
+    for (int i = 0; i < s_dev_count; i++) {
+        s_snap[i].addr  = s_dev[i].addr;
+        s_snap[i].centi = TEMP_CENTI_INVALID;
+        s_snap[i].ts_ms = 0;
+        bool seen = false;
+        for (int j = 0; j < oldn; j++) {
+            if (old[j].addr == s_dev[i].addr) {
+                s_snap[i].centi = old[j].centi;
+                s_snap[i].ts_ms = old[j].ts_ms;
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) changed = true;
     }
+    s_snap_count = s_dev_count;
+    if (changed) s_scan_gen++;
     xSemaphoreGive(s_lock);
 
     ESP_LOGI(TAG, "1-Wire scan: %d DS18B20 found%s", s_dev_count,
              changed ? " (changed)" : "");
 }
 
-// Read one device by address; returns centi-degrees on success.
-static bool read_addr(uint64_t addr, int16_t *centi_out)
+// Read device index i; returns centi-degrees on success (blocks ~750ms).
+static bool read_dev(int i, int16_t *centi_out)
 {
-    for (int i = 0; i < s_dev_count; i++) {
-        if (s_dev[i].addr != addr) continue;
-        if (ds18b20_trigger_temperature_conversion(s_dev[i].dev) != ESP_OK)
-            return false;
-        float t;
-        if (ds18b20_get_temperature(s_dev[i].dev, &t) != ESP_OK)
-            return false;
-        int c = (int)(t * 100.0f + (t < 0 ? -0.5f : 0.5f));
-        if (c < INT16_MIN + 1) c = INT16_MIN + 1;
-        if (c > INT16_MAX) c = INT16_MAX;
-        *centi_out = (int16_t)c;
-        return true;
-    }
-    return false;   // assigned ROM not present on the bus
+    if (ds18b20_trigger_temperature_conversion(s_dev[i].dev) != ESP_OK)
+        return false;
+    float t;
+    if (ds18b20_get_temperature(s_dev[i].dev, &t) != ESP_OK)
+        return false;
+    int c = (int)(t * 100.0f + (t < 0 ? -0.5f : 0.5f));
+    if (c < INT16_MIN + 1) c = INT16_MIN + 1;
+    if (c > INT16_MAX) c = INT16_MAX;
+    *centi_out = (int16_t)c;
+    return true;
 }
 
 static void poll_task(void *arg)
@@ -224,31 +265,40 @@ static void poll_task(void *arg)
             last_scan = now_ms();
         }
 
-        for (int slot = 0; slot < TEMP_SLOTS; slot++) {
-            // Snapshot what this slot wants under the lock.
-            uint8_t src, rom[8];
-            xSemaphoreTake(s_lock, portMAX_DELAY);
-            src = s_slot[slot].src;
-            memcpy(rom, s_slot[slot].rom, 8);
-            xSemaphoreGive(s_lock);
-
-            if (src != TEMP_SRC_DS18B20) continue;
-            uint64_t addr;
-            memcpy(&addr, rom, 8);
-            if (addr == 0) continue;            // no ROM assigned yet
-
+        // Read every discovered sensor and cache it in the snapshot — so even
+        // sensors that aren't feeding a display slot have a live reading for HA.
+        for (int i = 0; i < s_dev_count; i++) {
             int16_t centi;
-            if (read_addr(addr, &centi)) {       // blocks ~750ms in this task
-                xSemaphoreTake(s_lock, portMAX_DELAY);
-                if (s_slot[slot].src == TEMP_SRC_DS18B20) {
-                    s_slot[slot].centi = centi;
-                    s_slot[slot].ts_ms = now_ms();
+            if (!read_dev(i, &centi)) continue;
+            uint64_t addr = s_dev[i].addr;
+            xSemaphoreTake(s_lock, portMAX_DELAY);
+            for (int j = 0; j < s_snap_count; j++) {
+                if (s_snap[j].addr == addr) {
+                    s_snap[j].centi = centi;
+                    s_snap[j].ts_ms = now_ms();
+                    break;
                 }
-                xSemaphoreGive(s_lock);
-                ESP_LOGD(TAG, "ds18b20 slot %d (%016llX) = %d",
-                         slot, (unsigned long long)addr, centi);
+            }
+            xSemaphoreGive(s_lock);
+            ESP_LOGD(TAG, "ds18b20 %016llX = %d", (unsigned long long)addr, centi);
+        }
+
+        // Fan the cached readings out to whichever slots reference them.
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        for (int slot = 0; slot < TEMP_SLOTS; slot++) {
+            if (s_slot[slot].src != TEMP_SRC_DS18B20) continue;
+            uint64_t addr;
+            memcpy(&addr, s_slot[slot].rom, 8);
+            if (addr == 0) continue;              // no ROM assigned yet
+            for (int j = 0; j < s_snap_count; j++) {
+                if (s_snap[j].addr == addr && s_snap[j].ts_ms != 0) {
+                    s_slot[slot].centi = s_snap[j].centi;
+                    s_slot[slot].ts_ms = s_snap[j].ts_ms;
+                    break;
+                }
             }
         }
+        xSemaphoreGive(s_lock);
 
         vTaskDelay(pdMS_TO_TICKS(POLL_MS));
     }

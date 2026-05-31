@@ -128,13 +128,23 @@ int control_state_json(char *buf, size_t n)
     memcpy(&a, c.temp_rom[0], 8); if (a) temps_rom_to_str(c.temp_rom[0], rom0);
     memcpy(&a, c.temp_rom[1], 8); if (a) temps_rom_to_str(c.temp_rom[1], rom1);
 
-    char roms[8 * (TEMP_ROM_STRLEN + 1)] = "";
-    char list[8][TEMP_ROM_STRLEN];
-    int nr = temps_list_roms(list, 8);
-    for (int i = 0; i < nr; i++) {
-        if (i) strlcat(roms, ",", sizeof(roms));
-        strlcat(roms, list[i], sizeof(roms));
+    // Every DS18B20 on the bus, with its live reading and which slot (if any)
+    // it is assigned to: [{"rom":"..","t":"23.45","slot":1},...]. The web UI
+    // renders this with per-sensor assign/unassign buttons.
+    char ds[8 * 52 + 4] = "[";
+    temps_ds_info_t info[8];
+    int nd = temps_list_ds(info, 8);
+    for (int i = 0; i < nd; i++) {
+        char tv[12] = "unknown";
+        if (info[i].valid) fmt_centi(info[i].centi, tv, sizeof(tv));
+        int slot = strcmp(info[i].rom, rom0) == 0 ? 1
+                 : strcmp(info[i].rom, rom1) == 0 ? 2 : 0;
+        char one[64];
+        snprintf(one, sizeof(one), "%s{\"rom\":\"%s\",\"t\":\"%s\",\"slot\":%d}",
+                 i ? "," : "", info[i].rom, tv, slot);
+        strlcat(ds, one, sizeof(ds));
     }
+    strlcat(ds, "]", sizeof(ds));
 
     return snprintf(buf, n,
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_brightness\":%u,"
@@ -144,7 +154,7 @@ int control_state_json(char *buf, size_t n)
         "\"alarm_snooze\":%u,\"alarm_dow\":%u,\"alarm_ringing\":\"%s\",\"alarm_armed\":\"%s\","
         "\"temp_enabled\":\"%s\",\"temp_decimals\":%u,"
         "\"temp1_source\":\"%s\",\"temp2_source\":\"%s\","
-        "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds_roms\":\"%s\","
+        "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds\":%s,"
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"time\":\"%s\","
         "\"ip\":\"%s\",\"rssi\":%d}",
@@ -157,7 +167,7 @@ int control_state_json(char *buf, size_t n)
         onoff(c.alarm_enabled && alarm_is_armed()),
         onoff(c.temp_enabled), c.temp_decimals,
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
-        rom0, rom1, roms, t0, t1,
+        rom0, rom1, ds, t0, t1,
         onoff(settings_is_night(&c, mins)), onoff(netclock_synced()), tbuf,
         ip, rssi);
 }

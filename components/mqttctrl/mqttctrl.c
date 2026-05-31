@@ -61,6 +61,9 @@ static esp_mqtt_client_config_t build_cfg(void)
             .retain = true,
         },
         .session.keepalive = 30,
+        // The event handler publishes discovery + full state on connect/command,
+        // which needs more than the default client-task stack.
+        .task.stack_size = 8192,
     };
     return cfg;
 }
@@ -149,7 +152,23 @@ static void publish_state(void)
     }
     if (nr == 0) snprintf(roms, sizeof(roms), "none");
 
-    char buf[1100];
+    // Per-sensor readings keyed by ROM, e.g. {"EE06..":"23.45","9C06..":"5.10"}.
+    // Each discovered DS18B20 has its own HA temperature entity reading from here
+    // (see publish_ds_discovery), so a sensor that isn't assigned to a display
+    // slot is still visible in Home Assistant.
+    char dsobj[MAX_ROM_LIST * 40] = "";
+    temps_ds_info_t dinfo[MAX_ROM_LIST];
+    int nd = temps_list_ds(dinfo, MAX_ROM_LIST);
+    for (int i = 0; i < nd; i++) {
+        char tv[12];
+        if (dinfo[i].valid) fmt_centi(dinfo[i].centi, tv, sizeof(tv));
+        else snprintf(tv, sizeof(tv), "unknown");
+        char de[64];
+        snprintf(de, sizeof(de), "%s\"%s\":\"%s\"", i ? "," : "", dinfo[i].rom, tv);
+        strlcat(dsobj, de, sizeof(dsobj));
+    }
+
+    char buf[1500];
     int n = snprintf(buf, sizeof(buf),
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
@@ -159,7 +178,7 @@ static void publish_state(void)
         "\"temp_enabled\":\"%s\","
         "\"temp1_src\":\"%s\",\"temp2_src\":\"%s\","
         "\"temp1_in\":%s,\"temp2_in\":%s,"
-        "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds_roms\":\"%s\","
+        "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds_roms\":\"%s\",\"ds\":{%s},"
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"rtc\":\"%s\","
         "\"time\":\"%s\",\"ip\":\"%s\",\"rssi\":%d}",
@@ -171,7 +190,7 @@ static void publish_state(void)
         c.alarm_snooze_min, onoff(alarm_is_ringing()),
         onoff(c.temp_enabled),
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
-        in0, in1, rom0, rom1, roms, t0, t1,
+        in0, in1, rom0, rom1, roms, dsobj, t0, t1,
         onoff(settings_is_night(&c, mins)), onoff(netclock_synced()),
         onoff(rtc_present()), tbuf, ip, rssi);
     if (n > 0)
@@ -338,6 +357,33 @@ static void publish_discovery(void)
     ESP_LOGI(TAG, "published HA discovery for %s", s_node);
 }
 
+// One HA temperature sensor per DS18B20 on the bus. These are dynamic (the set
+// depends on what's wired up), so unlike the static entities above they're
+// (re)published whenever the bus scan changes. Each reads its value out of the
+// "ds" object in the state payload, keyed by ROM — so even a sensor that isn't
+// assigned to a display slot shows up in Home Assistant.
+static void disc_ds(const char *rom)
+{
+    char topic[160];
+    snprintf(topic, sizeof(topic), "%s/sensor/%s/ds_%s/config",
+             DISC_PREFIX, s_node, rom);
+    char buf[800];
+    snprintf(buf, sizeof(buf),
+        "{\"name\":\"DS18B20 %s\",\"uniq_id\":\"%s_ds_%s\",\"avty_t\":\"%s\","
+        "\"stat_t\":\"%s\",\"val_tpl\":\"{{value_json.ds['%s']}}\","
+        "\"unit_of_meas\":\"\\u00b0C\",\"dev_cla\":\"temperature\",%s}",
+        rom + 10, s_node, rom, s_avail, s_state, rom, s_dev);
+    esp_mqtt_client_publish(s_client, topic, buf, 0, 1, true);
+}
+
+static void publish_ds_discovery(void)
+{
+    char list[MAX_ROM_LIST][TEMP_ROM_STRLEN];
+    int nr = temps_list_roms(list, MAX_ROM_LIST);
+    for (int i = 0; i < nr; i++) disc_ds(list[i]);
+    if (nr) ESP_LOGI(TAG, "published %d DS18B20 sensor entities", nr);
+}
+
 // --- command handling -------------------------------------------------------
 static void handle_command(const char *topic, int tlen, const char *data, int dlen)
 {
@@ -411,6 +457,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
             esp_mqtt_client_subscribe(s_client, sub, 0);
         }
         publish_discovery();
+        publish_ds_discovery();
         publish_state();
         break;
     case MQTT_EVENT_DISCONNECTED:
@@ -437,10 +484,12 @@ static void state_task(void *arg)
             uint32_t v = settings_version();
             uint32_t sg = temps_scan_generation();
             int64_t now = esp_timer_get_time() / 1000;
-            if (v != last_ver || sg != last_scan || now - last_pub >= STATE_PERIOD_MS) {
+            bool scan_changed = (sg != last_scan);
+            if (v != last_ver || scan_changed || now - last_pub >= STATE_PERIOD_MS) {
                 last_ver = v;
                 last_scan = sg;
                 last_pub = now;
+                if (scan_changed) publish_ds_discovery();   // new/removed sensors
                 publish_state();
             }
         }
@@ -476,7 +525,10 @@ void mqttctrl_start(void)
         ESP_LOGI(TAG, "MQTT idle: no broker configured (node %s)", s_node);
     }
 
-    xTaskCreate(state_task, "mqtt_state", 4096, NULL, 4, NULL);
+    // 8 KB stack: publish_state builds a ~1.5 KB JSON buffer plus the DS-sensor
+    // list, and publish_ds_discovery has an ~800 B per-entity buffer — too much
+    // for the default 4 KB.
+    xTaskCreate(state_task, "mqtt_state", 8192, NULL, 4, NULL);
 }
 
 void mqttctrl_reconnect(void)
