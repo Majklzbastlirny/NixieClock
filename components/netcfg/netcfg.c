@@ -27,14 +27,17 @@ static const char *TAG = "netcfg";
 #define MQTT_PASS ""
 #endif
 
-// Read one NVS string key into dst; if absent/empty, copy the fallback instead.
+// Read one NVS string key into dst. `fallback` (secrets.h) is only used when
+// `use_fallback` is true — i.e. on a never-provisioned device. Once provisioned,
+// NVS is authoritative and an empty/absent key means empty (e.g. blank MQTT host
+// = "no MQTT"), so a factory reset truly forgets the compiled-in defaults.
 static void load_str(nvs_handle_t h, const char *key, const char *fallback,
-                     char *dst, size_t dstsz)
+                     bool use_fallback, char *dst, size_t dstsz)
 {
     size_t len = dstsz;
     if (h && nvs_get_str(h, key, dst, &len) == ESP_OK && dst[0] != '\0')
         return;
-    strlcpy(dst, fallback, dstsz);
+    strlcpy(dst, use_fallback ? fallback : "", dstsz);
 }
 
 void netcfg_get(netcfg_t *out)
@@ -43,12 +46,16 @@ void netcfg_get(netcfg_t *out)
     nvs_handle_t h = 0;
     nvs_open(NS, NVS_READONLY, &h);   // h stays 0 on failure; load_str handles it
 
-    load_str(h, "wifi_ssid", WIFI_SSID, out->wifi_ssid, sizeof(out->wifi_ssid));
-    load_str(h, "wifi_pass", WIFI_PASS, out->wifi_pass, sizeof(out->wifi_pass));
-    load_str(h, "mqtt_host", MQTT_IP,   out->mqtt_host, sizeof(out->mqtt_host));
-    load_str(h, "mqtt_port", MQTT_PORT, out->mqtt_port, sizeof(out->mqtt_port));
-    load_str(h, "mqtt_user", MQTT_USER, out->mqtt_user, sizeof(out->mqtt_user));
-    load_str(h, "mqtt_pass", MQTT_PASS, out->mqtt_pass, sizeof(out->mqtt_pass));
+    // secrets.h is a FIRST-BOOT convenience only. If a WiFi SSID is stored, the
+    // device has been provisioned -> trust NVS exclusively, no fallback.
+    bool fb = !netcfg_is_provisioned();
+
+    load_str(h, "wifi_ssid", WIFI_SSID, fb, out->wifi_ssid, sizeof(out->wifi_ssid));
+    load_str(h, "wifi_pass", WIFI_PASS, fb, out->wifi_pass, sizeof(out->wifi_pass));
+    load_str(h, "mqtt_host", MQTT_IP,   fb, out->mqtt_host, sizeof(out->mqtt_host));
+    load_str(h, "mqtt_port", MQTT_PORT, fb, out->mqtt_port, sizeof(out->mqtt_port));
+    load_str(h, "mqtt_user", MQTT_USER, fb, out->mqtt_user, sizeof(out->mqtt_user));
+    load_str(h, "mqtt_pass", MQTT_PASS, fb, out->mqtt_pass, sizeof(out->mqtt_pass));
 
     if (h) nvs_close(h);
 }

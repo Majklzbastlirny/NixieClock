@@ -465,8 +465,16 @@ void mqttctrl_start(void)
     esp_mqtt_client_config_t cfg = build_cfg();
     s_client = esp_mqtt_client_init(&cfg);
     esp_mqtt_client_register_event(s_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    esp_mqtt_client_start(s_client);
-    ESP_LOGI(TAG, "MQTT client started -> %s (node %s)", s_uri, s_node);
+
+    // No broker configured (e.g. after a factory reset with WiFi-only provisioning)
+    // -> create the client but don't connect, so we're not spinning on errors to a
+    // bogus mqtt://:1883. mqttctrl_reconnect() starts it once a host is set.
+    if (s_nc.mqtt_host[0]) {
+        esp_mqtt_client_start(s_client);
+        ESP_LOGI(TAG, "MQTT client started -> %s (node %s)", s_uri, s_node);
+    } else {
+        ESP_LOGI(TAG, "MQTT idle: no broker configured (node %s)", s_node);
+    }
 
     xTaskCreate(state_task, "mqtt_state", 4096, NULL, 4, NULL);
 }
@@ -475,11 +483,25 @@ void mqttctrl_reconnect(void)
 {
     if (!s_client) return;
     esp_mqtt_client_config_t cfg = build_cfg();
-    // Apply the new broker/credentials and bounce the connection.
+
+    if (!s_nc.mqtt_host[0]) {
+        // Broker cleared -> stop the client and go idle.
+        esp_mqtt_client_stop(s_client);
+        s_connected = false;
+        ESP_LOGI(TAG, "MQTT stopped: no broker configured");
+        return;
+    }
+
+    // Apply the new broker/credentials. start() if it was idle, else bounce it.
     esp_mqtt_set_config(s_client, &cfg);
-    esp_mqtt_client_disconnect(s_client);
-    esp_mqtt_client_reconnect(s_client);
-    ESP_LOGI(TAG, "MQTT reconnecting -> %s", s_uri);
+    if (esp_mqtt_client_start(s_client) == ESP_OK) {
+        ESP_LOGI(TAG, "MQTT started -> %s", s_uri);
+    } else {
+        // Already running: reconnect with the new config.
+        esp_mqtt_client_disconnect(s_client);
+        esp_mqtt_client_reconnect(s_client);
+        ESP_LOGI(TAG, "MQTT reconnecting -> %s", s_uri);
+    }
 }
 
 bool mqttctrl_connected(void)
