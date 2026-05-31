@@ -1,0 +1,7 @@
+# Managed components pulled by the ESP-IDF component manager (PlatformIO runs it
+# automatically on build). RMT-based 1-Wire bus + DS18B20 device driver — the
+# RMT peripheral does the bit timing in hardware, so temperature reads don't
+# disturb the display refresh.
+dependencies:
+  espressif/onewire_bus: "^1.0.2"
+  espressif/ds18b20: "^0.1.1"

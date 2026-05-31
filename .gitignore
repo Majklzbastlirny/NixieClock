@@ -1,0 +1,25 @@
+# PlatformIO / ESP-IDF build artifacts
+.pio/
+.pioenvs/
+.piolibdeps/
+sdkconfig
+sdkconfig.old
+sdkconfig.esp32dev
+build/
+managed_components/
+dependencies.lock
+
+# Local secrets (wifi creds etc.) — never commit
+secrets.h
+src/secrets.h
+components/**/secrets.h
+
+# Editor / OS / local agent config
+.vscode/
+.idea/
+.claude/
+*.swp
+.DS_Store
+
+# Local PDF/schematic render scratch
+_pdf_render/

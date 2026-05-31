@@ -1,0 +1,17 @@
+# NixieClock partition table — 4MB flash, single large app (no OTA).
+#
+# One ~2.7MB factory app slot: huge headroom over the ~960KB the MQTT build uses,
+# so web UI + REST + alarm/RTTTL all fit with room to spare. No OTA slots — if we
+# add OTA later this table changes and needs one more cabled flash.
+#
+# NVS stays at the default 0x9000 / 0x6000 so the settings + credentials the
+# firmware stores survive this repartition (only phy_init moves, no user data).
+#
+# 'storage' is a small SPIFFS area in case we serve web assets from a filesystem
+# instead of embedding them in the binary.
+#
+# Name,     Type, SubType,  Offset,    Size
+nvs,        data, nvs,      0x9000,    0x6000
+phy_init,   data, phy,      0xf000,    0x1000
+factory,    app,  factory,  0x10000,   0x2C0000
+storage,    data, spiffs,   0x2D0000,  0x130000

@@ -1,0 +1,21 @@
+# Baseline ESP-IDF config for NixieClock.
+# PlatformIO seeds sdkconfig from this on first build; edit via `pio run -t menuconfig`.
+
+# 1 kHz tick — we want sub-ms scheduling granularity for tasks (the display
+# refresh itself runs off a hardware GPTimer, not the RTOS tick).
+CONFIG_FREERTOS_HZ=1000
+
+# A little extra room for the main task during init (wifi + http later).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+
+# Flash / part
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# Keep the display GPTimer ISR responsive: place its driver code in IRAM.
+CONFIG_GPTIMER_ISR_HANDLER_IN_IRAM=y
+CONFIG_GPTIMER_CTRL_FUNC_IN_IRAM=y
+
+# Brownout can false-trigger on the shared 5V rail (MA7805, <=200mA) at HV
+# inrush; lower the threshold a notch. Adjust if you see resets.
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
