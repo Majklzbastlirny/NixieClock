@@ -13,8 +13,8 @@ its RTC) with no network.
 
 ## Hardware
 
-ESP32 (WROOM-32) on the **UCB32** controller board driving the Czech **Unidisp**
-display board:
+ESP32 (WROOM-32) on the **UCB32** controller board driving the
+[**Unidisp**](https://github.com/Unipuls80/Unidisp) display board:
 
 - Onboard UC3845 HV supply (~180 V, **no dimming input** → brightness is done in
   firmware by PWM-ing each tube's anode within its multiplex slot — the headline
@@ -167,3 +167,14 @@ Third-party content keeps its own license: the **Unidisp** display board
 (`PCB_Sources/Unidisp-main/`) is licensed by its author under CERN-OHL-W (Weakly
 Reciprocal) — see its bundled `LICENSE`. The original ESPHome reference
 (`nixieclock.yaml`) is retained only for reference.
+
+## Credits
+
+This started as a university project. The **Unidisp** digitron display board —
+the HV supply, multiplexing, and tube driving — is the work of
+[**@Unipuls80**](https://github.com/Unipuls80), along with his original
+[Unidisp](https://github.com/Unipuls80/Unidisp) and an
+[MH106 ASIC-based controller (ucb106)](https://github.com/Unipuls80/ucb106).
+
+The **UCB32** controller board and this ESP32 firmware are my "modern" take on
+driving the same display — by **Michal Basler** ([@Majklzbastlirny](https://github.com/Majklzbastlirny)).
