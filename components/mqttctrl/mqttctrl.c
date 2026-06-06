@@ -168,13 +168,16 @@ static void publish_state(void)
         strlcat(dsobj, de, sizeof(dsobj));
     }
 
+    char alstat[24];
+    alarm_status_str(&c, &lt, alstat, sizeof(alstat));
+
     char buf[1500];
     int n = snprintf(buf, sizeof(buf),
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
         "\"blink_colon\":\"%s\",\"h24\":\"%s\",\"ap_enabled\":\"%s\","
         "\"alarm_enabled\":\"%s\",\"alarm_time\":\"%02u:%02u\",\"alarm_melody\":%u,"
-        "\"alarm_snooze\":%u,\"alarm_ringing\":\"%s\","
+        "\"alarm_snooze\":%u,\"alarm_ringing\":\"%s\",\"alarm_status\":\"%s\","
         "\"temp_enabled\":\"%s\","
         "\"temp1_src\":\"%s\",\"temp2_src\":\"%s\","
         "\"temp1_in\":%s,\"temp2_in\":%s,"
@@ -187,7 +190,7 @@ static void publish_state(void)
         c.night_end_min / 60, c.night_end_min % 60,
         onoff(c.blink_colon), onoff(c.h24), onoff(c.ap_enabled),
         onoff(c.alarm_enabled), c.alarm_hour, c.alarm_min, c.alarm_melody,
-        c.alarm_snooze_min, onoff(alarm_is_ringing()),
+        c.alarm_snooze_min, onoff(alarm_is_ringing()), alstat,
         onoff(c.temp_enabled),
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
         in0, in1, rom0, rom1, roms, dsobj, t0, t1,
@@ -289,10 +292,14 @@ static void publish_discovery(void)
         ",\"cmd_t\":\"%s/alarm_dow\",\"min\":0,\"max\":127,\"step\":1", s_cmd);
     disc("number", "alarm_dow", "Alarm days (bitmask)", "alarm_dow", ex);
     disc("binary_sensor", "alarm_ringing", "Alarm ringing", "alarm_ringing", "");
+    // Human-readable state ("ringing" / "snoozed 6m" / "off 23h59m" / "armed 7h12m").
+    disc("sensor", "alarm_status", "Alarm status", "alarm_status", "");
     snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/alarm_snooze_now\"", s_cmd);
     disc_cmd("button", "alarm_snooze_now", "Snooze", ex);
     snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/alarm_dismiss\"", s_cmd);
     disc_cmd("button", "alarm_dismiss", "Dismiss alarm", ex);
+    snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/alarm_test\"", s_cmd);
+    disc_cmd("button", "alarm_test", "Test melody", ex);
 
     // Temperature display: master enable + decimals + per-slot source/input/reading
     snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/temp_enabled\"", s_cmd);
@@ -407,6 +414,7 @@ static void handle_command(const char *topic, int tlen, const char *data, int dl
     }
     if (ISN("alarm_snooze_now")) { alarm_snooze();  publish_state(); return; }
     if (ISN("alarm_dismiss"))    { alarm_dismiss(); publish_state(); return; }
+    if (ISN("alarm_test"))       { alarm_preview_melody(); return; }
     if (ISN("factory_reset")) {
         // Require the exact token so an accidental/empty payload can't wipe NVS.
         if (vl == 5 && strncmp(val, "RESET", 5) == 0) {

@@ -28,9 +28,24 @@ bool alarm_is_ringing(void);
 // used to show the "armed" colon cue.
 bool alarm_is_armed(void);
 
+// True while snoozed (silenced after a ring, waiting to re-ring). Used for the
+// distinct "double pip" colon cue.
+bool alarm_is_snoozed(void);
+
 // Snooze a ringing alarm for the configured minutes. No-op if not ringing.
 void alarm_snooze(void);
 
 // Dismiss the alarm for the rest of today (stops ringing/snooze). Returns true
 // if it actually silenced something (so the caller can play a confirm blink).
 bool alarm_dismiss(void);
+
+// Short human-readable status for the UIs (web + Home Assistant), e.g.
+//   "disabled", "ringing", "snoozed 6m", "off 23h59m", "armed 7h12m".
+// `lt` = current local time, `c` = settings snapshot (needed to work out the
+// time until the next occurrence). Writes a NUL-terminated string into `out`.
+void alarm_status_str(const clock_settings_t *c, const struct tm *lt,
+                      char *out, size_t n);
+
+// Play the currently-configured alarm melody once (no loop) as a preview. If the
+// alarm is mid-ring the ringing loop re-asserts itself shortly after.
+void alarm_preview_melody(void);

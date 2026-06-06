@@ -146,12 +146,16 @@ int control_state_json(char *buf, size_t n)
     }
     strlcat(ds, "]", sizeof(ds));
 
+    char alstat[24];
+    alarm_status_str(&c, &lt, alstat, sizeof(alstat));
+
     return snprintf(buf, n,
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
         "\"blink_colon\":\"%s\",\"h24\":\"%s\",\"ap_enabled\":\"%s\","
         "\"alarm_enabled\":\"%s\",\"alarm_time\":\"%02u:%02u\",\"alarm_melody\":%u,"
         "\"alarm_snooze\":%u,\"alarm_dow\":%u,\"alarm_ringing\":\"%s\",\"alarm_armed\":\"%s\","
+        "\"alarm_status\":\"%s\","
         "\"temp_enabled\":\"%s\",\"temp_decimals\":%u,"
         "\"temp1_source\":\"%s\",\"temp2_source\":\"%s\","
         "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds\":%s,"
@@ -165,6 +169,7 @@ int control_state_json(char *buf, size_t n)
         onoff(c.alarm_enabled), c.alarm_hour, c.alarm_min, c.alarm_melody,
         c.alarm_snooze_min, c.alarm_dow_mask, onoff(alarm_is_ringing()),
         onoff(c.alarm_enabled && alarm_is_armed()),
+        alstat,
         onoff(c.temp_enabled), c.temp_decimals,
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
         rom0, rom1, ds, t0, t1,

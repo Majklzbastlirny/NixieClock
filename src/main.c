@@ -424,12 +424,18 @@ void app_main(void)
                     if (on) show_time(&lt, cfg.h24);
                     else    show_blank();
 
-                    // Colon: shortened pulse = "alarm armed"; else normal.
-                    bool armed = cfg.alarm_enabled && alarm_is_armed();
+                    // Colon cue tied to whether the alarm feature is ENABLED (not
+                    // whether it's still pending today) so it stays consistent
+                    // through the dismissed "off for 23h59m" window:
+                    //   snoozed  -> double pip   (distinct: "snoozed, will re-ring")
+                    //   enabled  -> single pip   ("alarm on")
+                    //   disabled -> normal blink / steady per blink_colon.
+                    int  ph = now_ms % 1000;
                     bool colon;
-                    if (!on)         colon = false;
-                    else if (armed)  colon = (now_ms % 1000) < 150;   // brief pip
-                    else             colon = cfg.blink_colon ? ((now_ms / 500) % 2 == 0) : true;
+                    if (!on)                       colon = false;
+                    else if (alarm_is_snoozed())   colon = (ph < 150) || (ph >= 300 && ph < 450);
+                    else if (cfg.alarm_enabled)    colon = (ph < 150);
+                    else                           colon = cfg.blink_colon ? ((now_ms / 500) % 2 == 0) : true;
                     nixie_set_colon(colon);
                 } else {
                     if (now_ms - last_anim_ms >= 100) {     // ~10 steps/sec

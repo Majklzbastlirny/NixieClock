@@ -15,7 +15,7 @@ hardware-validated as of the last commit.
 
 ```sh
 pio run                 # build
-pio run -t upload       # build + flash over USB (COM51, FTDI)
+pio run -t upload       # build + flash over USB (serial port, FTDI)
 pio device monitor      # serial @ 115200
 ```
 
@@ -114,7 +114,7 @@ committing. End commit messages with the Co-Authored-By trailer.
 ESP32, RTC = **PCF8563 @ I²C 0x51** (driver also handles DS @ 0x68). 2× DS18B20
 on GPIO13 (needs 4.7 kΩ pull-up). Full pin map: `components/common/include/pins.h`.
 HV supply has no dim input → brightness is firmware multiplex duty-cycling.
-Flash port COM51 (FTDI), 115200 monitor.
+Flash over the USB serial port (FTDI), 115200 monitor.
 
 ## State / what's left
 

@@ -44,9 +44,13 @@ configure (`rm -rf .pio/build/esp32dev`) so the component manager re-runs.
 
 ## First-time setup / credentials
 
-Credentials live in NVS (set via the SoftAP portal or the web UI) and fall back
-to compile-time defaults in `components/common/include/secrets.h` (gitignored).
-Copy the template to get started:
+Credentials live in NVS (set via the SoftAP portal or the web UI).
+`components/common/include/secrets.h` (gitignored) is a **first-boot fallback
+only**: once a WiFi SSID is stored in NVS the device trusts NVS exclusively (an
+empty MQTT host means *no MQTT* — the client goes idle), and a factory reset
+forces SoftAP setup on the next boot regardless of `secrets.h`.
+
+To seed defaults at compile time, copy the template:
 
 ```sh
 cp components/common/include/secrets.example.h components/common/include/secrets.h

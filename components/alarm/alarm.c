@@ -1,5 +1,8 @@
 #include "alarm.h"
 #include "buzzer.h"
+#include "settings.h"
+
+#include <stdio.h>
 
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -76,6 +79,8 @@ void alarm_tick(const struct tm *lt, const clock_settings_t *c, int64_t now_ms)
 
 bool alarm_is_ringing(void) { return s_state == ST_RINGING; }
 
+bool alarm_is_snoozed(void) { return s_state == ST_SNOOZED; }
+
 bool alarm_is_armed(void)
 {
     // "Armed" = not dismissed-for-today. main also checks alarm_enabled itself
@@ -101,4 +106,60 @@ bool alarm_dismiss(void)
     s_dismiss_yday = s_fired_key / 1440;
     ESP_LOGI(TAG, "dismissed for today");
     return true;
+}
+
+// Minutes from `lt` until the next alarm occurrence, honouring the day-of-week
+// mask. `skip_today` ignores today's slot (used when already dismissed). Returns
+// -1 if no day matches (shouldn't happen while enabled).
+static int mins_to_next_alarm(const clock_settings_t *c, const struct tm *lt,
+                              bool skip_today)
+{
+    int now_min   = lt->tm_hour * 60 + lt->tm_min;
+    int alarm_min = c->alarm_hour * 60 + c->alarm_min;
+    for (int d = 0; d <= 7; d++) {
+        int wday = (lt->tm_wday + d) % 7;
+        if (!dow_matches(c->alarm_dow_mask, wday)) continue;
+        if (d == 0) {
+            if (skip_today || alarm_min <= now_min) continue;  // already gone today
+            return alarm_min - now_min;
+        }
+        return d * 1440 - now_min + alarm_min;
+    }
+    return -1;
+}
+
+static void fmt_dur(int mins, char *o, size_t n)
+{
+    if (mins < 60) snprintf(o, n, "%dm", mins);
+    else           snprintf(o, n, "%dh%02dm", mins / 60, mins % 60);
+}
+
+void alarm_status_str(const clock_settings_t *c, const struct tm *lt,
+                      char *out, size_t n)
+{
+    if (!c->alarm_enabled) { snprintf(out, n, "disabled"); return; }
+    if (s_state == ST_RINGING) { snprintf(out, n, "ringing"); return; }
+
+    if (s_state == ST_SNOOZED) {
+        int64_t now = esp_timer_get_time() / 1000;
+        int rem = (int)((s_snooze_until_ms - now + 59999) / 60000);  // round up
+        if (rem < 0) rem = 0;
+        snprintf(out, n, "snoozed %dm", rem);
+        return;
+    }
+
+    // IDLE: either dismissed for the rest of today, or simply armed.
+    bool dismissed = (s_dismiss_yday != -1);
+    int  m = mins_to_next_alarm(c, lt, dismissed);
+    char d[16];
+    if (m >= 0) fmt_dur(m, d, sizeof(d)); else snprintf(d, sizeof(d), "?");
+    snprintf(out, n, "%s %s", dismissed ? "off" : "armed", d);
+}
+
+void alarm_preview_melody(void)
+{
+    clock_settings_t c;
+    settings_get(&c);
+    buzzer_play_rtttl(buzzer_builtin_rtttl(c.alarm_melody), false);
+    ESP_LOGI(TAG, "preview melody %u", c.alarm_melody);
 }

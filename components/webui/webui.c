@@ -54,7 +54,8 @@ static const char PAGE[] =
 "<h2>Alarm</h2><fieldset>"
 "<label>Enabled <input type='checkbox' id='alarm_enabled' onchange='setck(this)'></label>"
 "<label>Time <input type='time' id='alarm_time' onchange='set(this)'></label>"
-"<label>Melody (0-7) <input type='number' min='0' max='7' id='alarm_melody' onchange='set(this)'></label>"
+"<label>Melody (0-7) <span><input type='number' min='0' max='7' id='alarm_melody' onchange='set(this)' size='3'> "
+"<button onclick=\"act('alarm_test')\">Play</button></span></label>"
 "<label>Snooze (min) <input type='number' min='1' max='60' id='alarm_snooze' onchange='set(this)'></label>"
 "<label>Days <span id='dow'>"
 "<label style='display:inline'><input type='checkbox' name='dow' onchange='getdow()'>Su</label>"
@@ -66,8 +67,8 @@ static const char PAGE[] =
 "<label style='display:inline'><input type='checkbox' name='dow' onchange='getdow()'>Sa</label>"
 "</span></label>"
 "<label><span class='m'>No days ticked = every day.</span></label>"
-"<label><span id='ring' class='r'></span>"
-"<span><button onclick=\"act('alarm_snooze')\">Snooze</button> "
+"<label>Status <span id='ring' class='s'></span></label>"
+"<label>When ringing <span><button onclick=\"act('alarm_snooze')\">Snooze</button> "
 "<button onclick=\"act('alarm_dismiss')\">Dismiss</button></span></label>"
 "</fieldset>"
 
@@ -120,7 +121,8 @@ static const char PAGE[] =
 "if(e.type=='checkbox')e.checked=(s[k]=='ON');"
 "else if(e.tagName=='SELECT'||e.tagName=='INPUT')e.value=s[k];"
 "else e.textContent=s[k];}"
-"document.getElementById('ring').textContent=(s.alarm_ringing=='ON')?'RINGING':(s.alarm_armed=='ON'?'armed':'');"
+"var rg=document.getElementById('ring');rg.textContent=s.alarm_status||'';"
+"rg.className=(s.alarm_ringing=='ON')?'r':'s';"
 "function tv(x){return(x&&x!='unknown')?(x+'\\u00b0C'):'--';}"
 "document.getElementById('temp1').textContent=tv(s.temp1);"
 "document.getElementById('temp2').textContent=tv(s.temp2);"
@@ -239,6 +241,7 @@ static esp_err_t action_post(httpd_req_t *req)
     if (!strcmp(a, "antipoison_now"))   antipoison_trigger();
     else if (!strcmp(a, "alarm_snooze")) alarm_snooze();
     else if (!strcmp(a, "alarm_dismiss")) alarm_dismiss();
+    else if (!strcmp(a, "alarm_test"))   alarm_preview_melody();
     else if (!strcmp(a, "mqtt_test"))    mqttctrl_reconnect();
     else if (!strcmp(a, "temp1_input") && blen) temps_set_mqtt(0, parse_centi(body));
     else if (!strcmp(a, "temp2_input") && blen) temps_set_mqtt(1, parse_centi(body));
