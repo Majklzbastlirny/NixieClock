@@ -5,6 +5,12 @@ the original ESPHome config (`nixieclock.yaml`, kept for reference). WiFi is use
 for time sync and remote control; the clock keeps running (and keeps time, via
 its RTC) with no network.
 
+![The clock](clock.jpg)
+
+> **New here?** See **[GUIDE.md](GUIDE.md)** — a bilingual (English / Čeština)
+> user guide with a *For everyone* section (setup, buttons, web page) and a
+> *Power users* section (REST, MQTT/Home Assistant, building the firmware).
+
 ## Hardware
 
 ESP32 (WROOM-32) on the **UCB32** controller board driving the Czech **Unidisp**
