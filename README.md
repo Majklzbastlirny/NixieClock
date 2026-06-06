@@ -29,6 +29,8 @@ ESP32 (WROOM-32) on the **UCB32** controller board driving the
   pull-up to 3.3 V).
 
 Full pin map: [`components/common/include/pins.h`](components/common/include/pins.h).
+Printable enclosure (case, bezel, panels, TPU feet) + print/assembly notes:
+[`3D_Files/`](3D_Files/).
 
 ## Build & flash
 
