@@ -62,6 +62,14 @@ dead-time**, that's the ghosting fix), `i2cbus` (shared I²C + scanner), `rtcdev
 `mqttctrl`, `webui`, `temps` (slots + DS18B20 via RMT 1-Wire), `buttons`,
 `alarm`, `buzzer`, `antipoison`.
 
+The `alarm` component exposes more than ring state: `alarm_status_str(c, lt, out, n)`
+builds a human string (`disabled` / `ringing` / `snoozed 6m` / `off 23h59m` /
+`armed 7h12m`, honouring the DOW mask for time-to-next) consumed by BOTH
+`control_state_json` and `mqttctrl publish_state` (plus an HA "Alarm status"
+sensor). `alarm_preview_melody()` plays the selected melody once — wired as the
+`alarm_test` action over REST/MQTT, with a web **Play** button and an HA **Test
+melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
+
 ## Conventions / gotchas
 
 - **Component naming:** the ESP-IDF global namespace is huge. Don't name a public
@@ -95,6 +103,13 @@ dead-time**, that's the ghosting fix), `i2cbus` (shared I²C + scanner), `rtcdev
 - **Tubes have NO decimal points** — the colon is the only separator (between
   MM:SS = tubes 3|4) and doubles as the decimal point in temperature mode. No
   minus glyph either: negatives are shown by blinking the whole reading.
+- **Alarm colon cue (don't regress):** the colon also signals alarm state, keyed
+  off `cfg.alarm_enabled`, **NOT** `alarm_is_armed()`. Tying it to armed (which
+  goes false after a dismiss-for-today) made the "off for 23h59m" window revert
+  to the alarm-off pattern until reboot — that was the bug. Patterns (in the
+  `src/main.c` draw loop): disabled = normal blink per `blink_colon`; enabled =
+  one short pip/sec; snoozed (`alarm_is_snoozed()`) = double pip; ringing = whole
+  display flashes.
 - **Buttons sit on tube slots 1..5** (slot 0 has no button): 1=bright+, 2=bright−,
   3=show-temp, 4=anti-poison, 5=provision (short=show IP, ~3s=provision,
   ~10s=factory reset). Snooze is a dedicated GPIO.
@@ -104,10 +119,38 @@ dead-time**, that's the ghosting fix), `i2cbus` (shared I²C + scanner), `rtcdev
 
 ## Git
 
-Repo is initialized; commit working states with clear messages. `secrets.h`,
-`.pio/`, `.claude/`, and build artifacts are gitignored — **verify the secret is
-never staged** (`git ls-files --cached | grep secrets.h` must be empty) before
-committing. End commit messages with the Co-Authored-By trailer.
+**Public on GitHub: `github.com/Majklzbastlirny/NixieClock`, default branch
+`main` (`origin`).** Commit working states with clear messages + the
+Co-Authored-By trailer; push only when the user asks.
+
+- `gh` CLI is installed at `C:\Program Files\GitHub CLI\gh.exe` (authed as
+  `Majklzbastlirny`). The `!` prompt prefix runs **bash**, so `gh` calls with
+  spaces/`&` fail there — invoke it from the PowerShell tool with the full path:
+  `& "C:\Program Files\GitHub CLI\gh.exe" ...`.
+- **Repo is public — be paranoid about secrets.** `git ls-files --cached | grep
+  -i secrets.h` must show only `secrets.example.h` (the safe template); the real
+  `secrets.h` must never be staged. Gitignored: `secrets.h`, `.pio/`, `.claude/`,
+  build artifacts, and KiCad transients (`*.lck`, `_autosave-*`,
+  `#auto_saved_files#`).
+- **Commit messages:** in the Bash tool use repeated `-m` flags. PowerShell-style
+  `@'...'@` here-strings leak literal chars there (bit us once — a stray `@` line
+  in the subject).
+
+## Docs & repo layout
+
+- User-facing docs are split: `README.md` (overview, wiring, build) and
+  **`GUIDE.md`** (bilingual EN/CZ — *For everyone* + *Power users*: settings
+  keys, REST actions, MQTT topics, melody table). Keep both current when
+  user-visible behaviour changes; they duplicate some facts (e.g. the settings
+  key list) so update in lockstep.
+- `3D_Files/` = printable PETG/TPU enclosure (`.3mf`) + `renders/` previews +
+  `_render.py` (throwaway matplotlib/trimesh helper; run from a temp venv, not
+  the build). Its own `README.md` has the parts table + assembly hardware.
+- **Licensing is 3-way and scoped — never widen it:** firmware = **GPLv3** (root
+  `LICENSE`); the **UCB32** board (user's own design) = **CERN-OHL-S v2**
+  (`PCB_Sources/ucb vibecheck_final/LICENSE.txt`); **Unidisp**
+  (`PCB_Sources/Unidisp-main/`) is @Unipuls80's third-party board under its own
+  **CERN-OHL-W** — do NOT relicense or move a license over it.
 
 ## Hardware quick ref
 
@@ -119,8 +162,13 @@ Flash over the USB serial port (FTDI), 115200 monitor.
 ## State / what's left
 
 All planned milestones + polish are done (display, SNTP+RTC, brightness/night,
-anti-poison, temps + DS18B20, buttons, alarm+RTTTL, MQTT+HA, web UI, REST,
-provisioning, factory reset). Remaining ideas are optional and user-driven:
-REST GET aliases, BH1750 auto-brightness (hook exists: `settings_effective_
-brightness` takes a sensor arg, currently `NO_SENSOR`), OTA (would need a
-repartition). Confirm scope with the user before building.
+anti-poison, temps + DS18B20 incl. live web assign/unassign + per-sensor HA
+entities, buttons, alarm+RTTTL, MQTT+HA, web UI, REST, provisioning, factory
+reset). Recent additions: alarm status string + melody preview across web/HA,
+and the `alarm_enabled`-driven colon cue (with snooze double-pip). Repo is public
+with `README.md` + bilingual `GUIDE.md` and the 3-way license in place.
+
+Remaining ideas are optional and user-driven: REST GET aliases, BH1750
+auto-brightness (hook exists: `settings_effective_brightness` takes a sensor arg,
+currently `NO_SENSOR`), OTA (would need a repartition). Confirm scope with the
+user before building.
