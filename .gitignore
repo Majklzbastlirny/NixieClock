@@ -23,3 +23,8 @@ components/**/secrets.h
 
 # Local PDF/schematic render scratch
 _pdf_render/
+
+# KiCad transient files (locks / autosave) — project files + backups are kept
+*.lck
+_autosave-*
+\#auto_saved_files#
