@@ -151,3 +151,19 @@ components/
 Architecture note: `control` is the single place that maps a setting key=value
 and renders the state JSON; MQTT, the web UI, and REST all go through it, so
 adding a setting touches one switch and one JSON builder, not three.
+
+## License
+
+This project uses reciprocal ("share-alike") open licenses — you may use, copy,
+and modify it, including commercially, but you must publish your modifications to
+whichever part you change:
+
+- **Firmware / source code** — [GNU GPL v3](LICENSE) (`LICENSE` at the repo root).
+- **UCB32 controller board** (`PCB_Sources/ucb vibecheck_final/`) —
+  [CERN-OHL-S v2](PCB_Sources/ucb%20vibecheck_final/LICENSE.txt) (CERN Open
+  Hardware Licence, Strongly Reciprocal).
+
+Third-party content keeps its own license: the **Unidisp** display board
+(`PCB_Sources/Unidisp-main/`) is licensed by its author under CERN-OHL-W (Weakly
+Reciprocal) — see its bundled `LICENSE`. The original ESPHome reference
+(`nixieclock.yaml`) is retained only for reference.
