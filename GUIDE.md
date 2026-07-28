@@ -167,10 +167,13 @@ Served by the clock itself at `http://<clock-ip>/`.
 
 ```
 brightness            0..255
-night_enabled         ON / OFF
-night_brightness      0..255
-night_start           HH:MM
-night_end             HH:MM
+night_enabled         ON / OFF      (master toggle for dimming at night)
+night_mode            fixed / sun / lux   (lux only if a BH1750 is present)
+night_brightness      0..255        (level used when it's "night")
+night_start           HH:MM         (fixed mode: window start)
+night_end             HH:MM         (fixed mode: window end)
+latitude              e.g. 50.08    (sun mode: degrees N+, offline sunrise calc)
+longitude             e.g. 14.44    (sun mode: degrees E+)
 blink_colon           ON / OFF
 h24                   ON / OFF      (off = 12-hour, blanks leading zero)
 ap_enabled            ON / OFF      (anti-poison enabled)
@@ -453,10 +456,13 @@ Hostují samy hodiny na `http://<ip-hodin>/`.
 
 ```
 brightness            0..255
-night_enabled         ON / OFF
-night_brightness      0..255
-night_start           HH:MM
-night_end             HH:MM
+night_enabled         ON / OFF      (hlavní vypínač nočního ztlumení)
+night_mode            fixed / sun / lux   (lux jen když je přítomen BH1750)
+night_brightness      0..255        (jas použitý v „noci“)
+night_start           HH:MM         (režim fixed: začátek okna)
+night_end             HH:MM         (režim fixed: konec okna)
+latitude              např. 50.08   (režim sun: stupně S+, offline výpočet)
+longitude             např. 14.44   (režim sun: stupně V+)
 blink_colon           ON / OFF
 h24                   ON / OFF      (off = 12hodinový, skryje úvodní nulu)
 ap_enabled            ON / OFF      (anti-poison zapnut)

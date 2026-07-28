@@ -7,6 +7,7 @@
 #include "alarm.h"
 #include "control.h"
 #include "netcfg.h"
+#include "bh1750.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -77,6 +78,15 @@ static int s_temp_in[TEMP_SLOTS];
 // needs the bits used by state publishing + the temp-input echo below.
 static const char *onoff(bool v) { return v ? "ON" : "OFF"; }
 
+static const char *night_mode_name(uint8_t m)
+{
+    switch (m) {
+    case NIGHT_MODE_SUN: return "sun";
+    case NIGHT_MODE_LUX: return "lux";
+    default:             return "fixed";
+    }
+}
+
 static const char *src_name(uint8_t s)
 {
     switch (s) {
@@ -135,6 +145,10 @@ static void publish_state(void)
     char off0[12], off1[12];
     fmt_centi(c.temp_offset[0], off0, sizeof(off0));
     fmt_centi(c.temp_offset[1], off1, sizeof(off1));
+    char lat[12], lon[12];
+    fmt_centi(c.lat_e2, lat, sizeof(lat));   // e2 hundredths -> "50.08"
+    fmt_centi(c.lon_e2, lon, sizeof(lon));
+    int lux = bh1750_read_lux();
 
     // Assigned DS18B20 ROM per slot (16 hex, or "" if unset).
     char rom0[TEMP_ROM_STRLEN] = "", rom1[TEMP_ROM_STRLEN] = "";
@@ -189,9 +203,11 @@ static void publish_state(void)
     if (p0 < 0) snprintf(bt0, sizeof(bt0), "unknown"); else snprintf(bt0, sizeof(bt0), "%d", p0);
     if (p1 < 0) snprintf(bt1, sizeof(bt1), "unknown"); else snprintf(bt1, sizeof(bt1), "%d", p1);
 
-    char buf[1700];
+    char buf[1850];
     int n = snprintf(buf, sizeof(buf),
-        "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_brightness\":%u,"
+        "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_mode\":\"%s\","
+        "\"latitude\":\"%s\",\"longitude\":\"%s\",\"bh1750\":\"%s\",\"lux\":%d,"
+        "\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
         "\"blink_colon\":\"%s\",\"h24\":\"%s\",\"ap_enabled\":\"%s\","
         "\"alarm_enabled\":\"%s\",\"alarm_time\":\"%02u:%02u\",\"alarm_melody\":%u,"
@@ -206,7 +222,8 @@ static void publish_state(void)
         "\"temp1_batt\":\"%s\",\"temp2_batt\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"rtc\":\"%s\","
         "\"ip\":\"%s\",\"rssi\":%d}",
-        c.brightness, onoff(c.night_enabled), c.night_brightness,
+        c.brightness, onoff(c.night_enabled), night_mode_name(c.night_mode),
+        lat, lon, onoff(bh1750_present()), lux, c.night_brightness,
         c.night_start_min / 60, c.night_start_min % 60,
         c.night_end_min / 60, c.night_end_min % 60,
         onoff(c.blink_colon), onoff(c.h24), onoff(c.ap_enabled),
@@ -215,7 +232,7 @@ static void publish_state(void)
         onoff(c.temp_enabled),
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
         in0, in1, rom0, rom1, roms, dsobj, mac0, mac1, off0, off1, t0, t1, bt0, bt1,
-        onoff(settings_is_night(&c, mins)), onoff(netclock_synced()),
+        onoff(settings_is_night_now(&c, now, mins)), onoff(netclock_synced()),
         onoff(rtc_present()), ip, rssi);
     if (n > 0)
         esp_mqtt_client_publish(s_client, s_state, buf, 0, 0, 0);
@@ -279,6 +296,28 @@ static void publish_discovery(void)
     // Night dimming enable (switch)
     snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/night_enabled\"", s_cmd);
     disc("switch", "night_enabled", "Night dimming", "night_enabled", ex);
+
+    // Night mode: fixed window / sunrise-sunset / BH1750 lux (select). All three
+    // are always offered in HA; "lux" simply falls back to sun if no sensor.
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/night_mode\",\"options\":[\"fixed\",\"sun\",\"lux\"]", s_cmd);
+    disc("select", "night_mode", "Night mode", "night_mode", ex);
+
+    // Latitude / longitude for the sunrise-sunset calc (numbers, degrees).
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/latitude\",\"min\":-90,\"max\":90,\"step\":0.01,"
+        "\"mode\":\"box\",\"entity_category\":\"config\"", s_cmd);
+    disc("number", "latitude", "Latitude", "latitude", ex);
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/longitude\",\"min\":-180,\"max\":180,\"step\":0.01,"
+        "\"mode\":\"box\",\"entity_category\":\"config\"", s_cmd);
+    disc("number", "longitude", "Longitude", "longitude", ex);
+
+    // Ambient light from the BH1750 (sensor; -1 / stays put when none present).
+    snprintf(ex, sizeof(ex),
+        ",\"unit_of_meas\":\"lx\",\"dev_cla\":\"illuminance\","
+        "\"entity_category\":\"diagnostic\"");
+    disc("sensor", "lux", "Ambient light", "lux", ex);
 
     // Night brightness (number)
     snprintf(ex, sizeof(ex),

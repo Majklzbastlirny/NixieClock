@@ -21,9 +21,16 @@
 #include <stddef.h>
 
 #define SETTINGS_MAGIC   0x4E58u   // 'NX'
-#define SETTINGS_VERSION 4
+#define SETTINGS_VERSION 5
 
 #define TEMP_SLOTS 2
+
+// How the display decides when/how to dim (the "night mode").
+typedef enum {
+    NIGHT_MODE_FIXED = 0,   // dim inside a fixed clock-time window
+    NIGHT_MODE_SUN   = 1,   // dim between sunset and sunrise (computed on-device)
+    NIGHT_MODE_LUX   = 2,   // track a BH1750 ambient-light sensor (if present)
+} night_mode_t;
 
 // Source feeding a temperature display slot.
 typedef enum {
@@ -39,10 +46,13 @@ typedef struct {
 
     // --- Display -----------------------------------------------------------
     uint8_t  brightness;       // manual / daytime level, 0..255
-    bool     night_enabled;    // dim during the night window
+    bool     night_enabled;    // master toggle: dim at night at all
+    uint8_t  night_mode;       // night_mode_t: fixed window / sun / BH1750 lux
     uint8_t  night_brightness; // level inside the night window, 0..255
     uint16_t night_start_min;  // window start, minutes since midnight (20:30=1230)
     uint16_t night_end_min;    // window end (06:00=360); wraps past midnight
+    int16_t  lat_e2;           // latitude  x100 (deg, N+), for NIGHT_MODE_SUN
+    int16_t  lon_e2;           // longitude x100 (deg, E+), for NIGHT_MODE_SUN
     bool     auto_brightness;  // future BH1750: sensor drives level when true
     uint8_t  bright_min;       // auto-brightness clamp, low
     uint8_t  bright_max;       // auto-brightness clamp, high
@@ -88,8 +98,21 @@ int settings_set(const clock_settings_t *in);
 uint32_t settings_version(void);
 
 // --- Pure display-policy helpers (operate on a snapshot, no locking) --------
-// True if minute-of-day `mins` (0..1439) falls in the night window.
+// True if minute-of-day `mins` (0..1439) falls in the fixed night window.
 bool settings_is_night(const clock_settings_t *s, int mins);
-// Effective brightness for the current minute. `sensor` is a BH1750 reading
-// (0..255) or negative when no sensor is present/enabled.
-uint8_t settings_effective_brightness(const clock_settings_t *s, int mins, int sensor);
+
+// True if the sun is below the horizon at UTC epoch `utc` (Unix seconds), for
+// the configured lat/lon. Fully offline — pure astronomy, no network. Used by
+// NIGHT_MODE_SUN. (Epoch is int64_t, not time_t, to keep this widely-included
+// header free of <time.h>.)
+bool settings_sun_is_night(const clock_settings_t *s, int64_t utc);
+
+// True if it is currently "night" for the active mode (fixed window, or sun
+// below horizon for sun/lux). Always false when night dimming is disabled.
+// Used only for the "night active" status readout.
+bool settings_is_night_now(const clock_settings_t *s, int64_t utc, int mins);
+
+// Effective display brightness right now. `mins` = local minute-of-day (fixed
+// window), `utc` = epoch seconds (sun calc), `lux` = BH1750 reading or -1.
+uint8_t settings_brightness_for(const clock_settings_t *s, int64_t utc,
+                                int mins, int lux);

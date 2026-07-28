@@ -71,9 +71,21 @@ dead-time**, that's the ghosting fix), `i2cbus` (shared I²C + scanner), `rtcdev
 decodes the button event 0x3A → the web picker highlights the pressed sensor
 ["identify"], and battery ≤20% blinks the temp colon via `temps_battery`),
 `buttons`,
-`alarm`, `buzzer`, `antipoison`, `weblog` (esp_log→RAM ring buffer, read back
+`alarm`, `buzzer`, `antipoison`, `bh1750` (optional ambient-light sensor;
+`bh1750_init()` probes I²C 0x23 then 0x5C at boot and puts it in continuous
+H-res mode — `bh1750_present()`/`bh1750_read_lux()` gate + feed the `lux` night
+mode), `weblog` (esp_log→RAM ring buffer, read back
 over `GET /api/log` + a Logs panel — the assembled clock has no serial, so this
 is how you read its logs; `weblog_init()` runs first in `app_main`).
+
+**Night dimming has three modes** (`night_mode`: `fixed`/`sun`/`lux`, default
+`sun`), all resolved in `settings_brightness_for(s, utc, mins, lux)` — the single
+policy fn `main.c` calls each loop. `fixed` = the clock-time window; `sun` =
+`settings_sun_is_night()`, a pure on-device NOAA solar-elevation calc evaluated
+in **UTC** (so no TZ/DST handling) from `lat_e2`/`lon_e2` — **works fully offline**,
+no API; `lux` = map a BH1750 reading to a level (falls back to `sun` if no
+sensor). `night_active` in state JSON now comes from `settings_is_night_now()`,
+not the old fixed-only `settings_is_night()`.
 
 **OTA is web-upload only** (`POST /api/ota` in `webui.c`) — the assembled clock's
 UART is physically disconnected. Two gotchas baked into the handler, don't
@@ -143,7 +155,13 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   separate NVS namespace, so they survive). (v2→v3 added `shelly_mac`; v3→v4
   added `temp_offset` — a per-slot calibration applied in `temps_get` on
   read-out, so it shifts display + MQTT/REST alike but leaves the raw DS picker
-  list untouched.)
+  list untouched; v4→v5 added `night_mode`/`lat_e2`/`lon_e2` for sun/lux dimming.)
+- **`settings.h` is included almost everywhere — keep it lean.** Don't add
+  `<time.h>` (or other system headers) to it: doing so pulled `sys/types.h`'s
+  `dev_t` into `blescan.c` and collided with its local `dev_t` typedef. That's
+  why `settings_*` sun helpers take the epoch as `int64_t`, not `time_t`, and
+  the `<time.h>`/`gmtime_r` live in `settings.c` only. (Same "don't shadow IDF/
+  system names" lesson as `rtc_*`.)
 - **BLE/NimBLE config (burned us):** BT is on for `blescan` (`sdkconfig.defaults`).
   Two non-obvious pins: (1) do **not** trim NimBLE to observer-only roles — that
   leaves `ble_hs_resolv` referencing `ble_sm_alg_encrypt` which then isn't
@@ -209,9 +227,12 @@ web firmware upload** (see the flash-layout note above). Repo is public with
 Also done: **Shelly BLU H&T over BLE** — `blescan` (NimBLE passive BTHome v2 scan)
 + `TEMP_SRC_SHELLY` source + `shelly_mac` per slot + live web picker
 (`GET /api/blescan`) + HA select/MAC entities; verified on hardware (a BLU H&T fed
-`temp1` over BLE while WiFi/MQTT stayed up).
+`temp1` over BLE while WiFi/MQTT stayed up). Per-slot **temp calibration offset**
+(`temp_offset`, applied in `temps_get`). **Three-mode night dimming** — fixed /
+sunrise-sunset (offline solar calc) / BH1750 ambient lux (the `bh1750` component;
+UI offers `lux` only when the sensor is detected). *Sun mode built but not yet
+hardware-verified in the field; BH1750 flow untested without a physical sensor.*
 
-Remaining ideas are optional and user-driven: REST GET aliases, BH1750
-auto-brightness (hook exists: `settings_effective_brightness` takes a sensor arg,
-currently `NO_SENSOR`), encrypted-BTHome (AES-CCM) support for Shelly BLU. Confirm
-scope with the user before building.
+Remaining ideas are optional and user-driven: REST GET aliases, encrypted-BTHome
+(AES-CCM) support for Shelly BLU, a twilight offset for sun mode (dim N min after
+sunset). Confirm scope with the user before building.

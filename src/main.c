@@ -30,6 +30,7 @@
 #include "netcfg.h"
 #include "weblog.h"
 #include "blescan.h"
+#include "bh1750.h"
 
 #include <time.h>
 #include <sys/time.h>
@@ -48,7 +49,6 @@ static const char *TAG = "main";
 
 #define LOOP_MS         50
 #define MIN_VALID_YEAR  2023   // tm_year+1900 below this => time not set yet
-#define NO_SENSOR       (-1)   // BH1750 not present/enabled yet
 #define BRIGHT_STEP     25     // button brightness increment
 #define BATT_LOW_PCT    20     // Shelly sensor battery at/below this = "low"
 #define SHOW_TEMP_MS    4000   // "show temp now" duration (2s per slot)
@@ -321,6 +321,7 @@ void app_main(void)
     tzset();
 
     i2cbus_scan();   // log every I2C device so a new/unknown chip is easy to spot
+    bh1750_init();   // optional ambient-light sensor for the "lux" night mode
     bool have_rtc = (rtc_open() == ESP_OK);
     if (have_rtc)
         seed_system_clock_from_rtc();
@@ -342,6 +343,8 @@ void app_main(void)
     uint8_t anim = 0;
     int64_t last_anim_ms = 0;
     int last_level = -1;     // last brightness pushed to the driver
+    int lux = -1;            // cached BH1750 reading (-1 = none), refreshed ~1 Hz
+    int64_t last_lux_ms = 0;
 
     for (;;) {
         int64_t now_ms = esp_timer_get_time() / 1000;
@@ -356,6 +359,13 @@ void app_main(void)
             temps_apply_settings(&cfg);
             blescan_apply_settings(&cfg);
             last_level = -1;             // force a re-apply of brightness
+        }
+
+        // Refresh the ambient-light reading about once a second (the BH1750
+        // integrates ~120 ms; no point polling it every 50 ms loop).
+        if (now_ms - last_lux_ms >= 1000) {
+            lux = bh1750_read_lux();
+            last_lux_ms = now_ms;
         }
 
         time_t now = time(NULL);
@@ -376,9 +386,9 @@ void app_main(void)
             // routine drew this frame; it restores brightness when it ends
             last_level = -1;
         } else {
-            // Apply effective brightness (manual / night / future sensor).
+            // Apply effective brightness (manual / fixed-window / sun / lux).
             int level = valid
-                ? settings_effective_brightness(&cfg, mins, NO_SENSOR)
+                ? settings_brightness_for(&cfg, now, mins, lux)
                 : cfg.brightness;
             if (level != last_level) {
                 nixie_set_brightness((uint8_t)level);
@@ -462,9 +472,9 @@ void app_main(void)
         }
 
         if (++tick % 200 == 0)
-            ESP_LOGI(TAG, "valid=%d synced=%d rtc=%d mqtt=%d night=%d lvl=%d",
+            ESP_LOGI(TAG, "valid=%d synced=%d rtc=%d mqtt=%d night=%d lux=%d lvl=%d",
                      valid, netclock_synced(), have_rtc, mqttctrl_connected(),
-                     settings_is_night(&cfg, mins), last_level);
+                     settings_is_night_now(&cfg, now, mins), lux, last_level);
 
         vTaskDelay(pdMS_TO_TICKS(LOOP_MS));
     }

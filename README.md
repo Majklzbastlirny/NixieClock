@@ -27,6 +27,8 @@ ESP32 (WROOM-32) on the **UCB32** controller board driving the
 - Passive piezo buzzer on the ALM line (LEDC tone / RTTTL).
 - Up to 2× **DS18B20** 1-Wire temperature sensors on GPIO13 (needs a 4.7 kΩ
   pull-up to 3.3 V).
+- Optional **BH1750** ambient-light sensor on the shared I²C bus (address 0x23 or
+  0x5C) — auto-detected at boot; enables light-driven night dimming when fitted.
 
 Full pin map: [`components/common/include/pins.h`](components/common/include/pins.h).
 Printable enclosure (case, bezel, panels, TPU feet) + print/assembly notes:
@@ -132,8 +134,11 @@ everywhere instantly:
 
 - Smooth multiplex PWM brightness, ghost-free (cathode-before-anode + dead-time).
 - SNTP timekeeping (Europe/Prague), seeded from and written back to the RTC.
-- Manual brightness + night dimming (default 20:30→06:00); hook for a future
-  BH1750 light sensor.
+- Manual brightness + night dimming with three selectable modes: a **fixed**
+  clock-time window (default 20:30→06:00), **sunrise/sunset** computed on-device
+  from a configurable lat/lon (fully offline — no network needed), or **ambient
+  light** from an optional BH1750 sensor (auto-detected at boot on I²C 0x23/0x5C;
+  the light-driven mode is offered only when the sensor is present).
 - Anti-cathode-poisoning cycle (periodic + on-demand).
 - Two temperature slots shown near the end of each minute (sec 52–55), each fed
   by MQTT, a DS18B20, or a **Shelly BLU H&T** read directly over BLE (passive
@@ -170,6 +175,7 @@ components/
   webui/                   self-hosted web UI + REST/JSON API
   temps/                   temperature slots + DS18B20 (RMT 1-Wire)
   blescan/                 NimBLE passive scan → Shelly BLU H&T (BTHome v2)
+  bh1750/                  optional ambient-light sensor (I²C) for lux night mode
   weblog/                  esp_log → RAM ring buffer, read over /api/log
   buttons/                 multiplexed-button debounce + classification
   alarm/                   alarm state machine

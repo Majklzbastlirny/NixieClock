@@ -44,9 +44,16 @@ static const char PAGE[] =
 "<h2>Display</h2><fieldset>"
 "<label>Brightness <input type='range' min='0' max='255' id='brightness' onchange='set(this)'></label>"
 "<label>Night dimming <input type='checkbox' id='night_enabled' onchange='setck(this)'></label>"
+"<label>Night mode <select id='night_mode' onchange='set(this)'>"
+"<option>fixed</option><option>sun</option><option id='opt_lux'>lux</option></select></label>"
 "<label>Night brightness <input type='range' min='0' max='255' id='night_brightness' onchange='set(this)'></label>"
+"<div class='s' id='fixedrow'>Fixed window:</div>"
 "<label>Night start <input type='time' id='night_start' onchange='set(this)'></label>"
 "<label>Night end <input type='time' id='night_end' onchange='set(this)'></label>"
+"<div class='s' id='sunrow'>Sunrise/sunset location (offline):</div>"
+"<label>Latitude <input id='latitude' size='8' onchange='set(this)'></label>"
+"<label>Longitude <input id='longitude' size='8' onchange='set(this)'></label>"
+"<div class='s' id='luxrow'>Light sensor: <span id='luxval'>-</span></div>"
 "<label>Blink colon <input type='checkbox' id='blink_colon' onchange='setck(this)'></label>"
 "<label>24-hour <input type='checkbox' id='h24' onchange='setck(this)'></label>"
 "</fieldset>"
@@ -154,6 +161,12 @@ static const char PAGE[] =
 "function bt(x){return(x&&x!='unknown')?(' \\u00b7 bat '+x+'%'+(+x<=20?' \\u26a0 low':'')):'';}"
 "document.getElementById('temp1').textContent=tv(s.temp1)+bt(s.temp1_batt);"
 "document.getElementById('temp2').textContent=tv(s.temp2)+bt(s.temp2_batt);"
+"document.getElementById('opt_lux').style.display=(s.bh1750=='ON')?'':'none';"
+"document.getElementById('luxval').textContent=(s.bh1750=='ON')?(s.lux+' lx'):'no BH1750 detected';"
+"var nm=s.night_mode;"
+"document.getElementById('fixedrow').style.opacity=(nm=='fixed')?1:.4;"
+"document.getElementById('sunrow').style.opacity=(nm=='sun')?1:.4;"
+"document.getElementById('luxrow').style.opacity=(nm=='lux')?1:.4;"
 "dslist(s.ds||[]);"
 "document.getElementById('mqtt').textContent=(s.mqtt=='ON'?'connected':'not connected');"
 "if(document.activeElement.name!='dow')setdow(s.alarm_dow);}"
@@ -220,7 +233,7 @@ static esp_err_t root_get(httpd_req_t *req)
 
 static void send_state(httpd_req_t *req)
 {
-    char buf[1700];
+    char buf[2048];
     int n = control_state_json(buf, sizeof(buf));
     // Splice in the live MQTT-connected flag (control can't depend on mqttctrl
     // without a cycle, so add it here): replace the trailing '}' with the field.

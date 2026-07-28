@@ -3,6 +3,7 @@
 #include "temps.h"
 #include "alarm.h"
 #include "netclock.h"
+#include "bh1750.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -70,6 +71,40 @@ static bool parse_mac(const char *s, uint8_t out[6])
 
 static const char *onoff(bool v) { return v ? "ON" : "OFF"; }
 
+static const char *night_mode_name(uint8_t m)
+{
+    switch (m) {
+    case NIGHT_MODE_SUN: return "sun";
+    case NIGHT_MODE_LUX: return "lux";
+    default:             return "fixed";
+    }
+}
+
+static uint8_t night_mode_from_name(const char *s)
+{
+    if (strcasecmp(s, "sun") == 0) return NIGHT_MODE_SUN;
+    if (strcasecmp(s, "lux") == 0) return NIGHT_MODE_LUX;
+    return NIGHT_MODE_FIXED;
+}
+
+// Parse a coordinate in degrees ("50.08", "-14.4") into hundredths, clamped.
+static int16_t parse_coord_e2(const char *s, int limit)
+{
+    double d = atof(s);
+    int v = (int)(d * 100.0 + (d < 0 ? -0.5 : 0.5));
+    if (v < -limit) v = -limit;
+    if (v >  limit) v =  limit;
+    return (int16_t)v;
+}
+
+// Format hundredths-of-a-degree as a decimal string ("50.08", "-14.40").
+static void fmt_e2(int e2, char *buf, size_t n)
+{
+    int v = e2, neg = v < 0;
+    if (neg) v = -v;
+    snprintf(buf, n, "%s%d.%02d", neg ? "-" : "", v / 100, v % 100);
+}
+
 // Parse a calibration offset in degrees ("1.5", "-0.5", "2", "") into centi-
 // degrees. Empty/blank clears it (0). Clamped to a sane +/-50 C.
 static int16_t parse_offset_centi(const char *s)
@@ -106,6 +141,9 @@ bool control_apply_kv(const char *key, const char *val, int vlen)
     #define K(s) (strcmp(key, s) == 0)
     if (K("brightness"))            c.brightness = (uint8_t)atoi(val);
     else if (K("night_enabled"))    c.night_enabled = payload_on(val, vlen);
+    else if (K("night_mode"))       c.night_mode = night_mode_from_name(val);
+    else if (K("latitude"))         c.lat_e2 = parse_coord_e2(val, 9000);
+    else if (K("longitude"))        c.lon_e2 = parse_coord_e2(val, 18000);
     else if (K("night_brightness")) c.night_brightness = (uint8_t)atoi(val);
     else if (K("blink_colon"))      c.blink_colon = payload_on(val, vlen);
     else if (K("h24"))              c.h24 = payload_on(val, vlen);
@@ -187,6 +225,11 @@ int control_state_json(char *buf, size_t n)
     fmt_centi(c.temp_offset[0], off0, sizeof(off0));
     fmt_centi(c.temp_offset[1], off1, sizeof(off1));
 
+    char lat[12], lon[12];
+    fmt_e2(c.lat_e2, lat, sizeof(lat));
+    fmt_e2(c.lon_e2, lon, sizeof(lon));
+    int lux = bh1750_read_lux();   // -1 when no sensor present
+
     // Every DS18B20 on the bus, with its live reading and which slot (if any)
     // it is assigned to: [{"rom":"..","t":"23.45","slot":1},...]. The web UI
     // renders this with per-sensor assign/unassign buttons.
@@ -217,7 +260,10 @@ int control_state_json(char *buf, size_t n)
              run ? run->label : "?");
 
     return snprintf(buf, n,
-        "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_brightness\":%u,"
+        "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_mode\":\"%s\","
+        "\"latitude\":\"%s\",\"longitude\":\"%s\","
+        "\"bh1750\":\"%s\",\"lux\":%d,"
+        "\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
         "\"blink_colon\":\"%s\",\"h24\":\"%s\",\"ap_enabled\":\"%s\","
         "\"alarm_enabled\":\"%s\",\"alarm_time\":\"%02u:%02u\",\"alarm_melody\":%u,"
@@ -232,7 +278,8 @@ int control_state_json(char *buf, size_t n)
         "\"temp1_batt\":\"%s\",\"temp2_batt\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"time\":\"%s\","
         "\"ip\":\"%s\",\"rssi\":%d,\"fw\":\"%s\"}",
-        c.brightness, onoff(c.night_enabled), c.night_brightness,
+        c.brightness, onoff(c.night_enabled), night_mode_name(c.night_mode),
+        lat, lon, onoff(bh1750_present()), lux, c.night_brightness,
         c.night_start_min / 60, c.night_start_min % 60,
         c.night_end_min / 60, c.night_end_min % 60,
         onoff(c.blink_colon), onoff(c.h24), onoff(c.ap_enabled),
@@ -243,6 +290,6 @@ int control_state_json(char *buf, size_t n)
         onoff(c.temp_enabled), c.temp_decimals,
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
         rom0, rom1, ds, mac0, mac1, off0, off1, t0, t1, b0, b1,
-        onoff(settings_is_night(&c, mins)), onoff(netclock_synced()), tbuf,
+        onoff(settings_is_night_now(&c, now, mins)), onoff(netclock_synced()), tbuf,
         ip, rssi, fw);
 }
