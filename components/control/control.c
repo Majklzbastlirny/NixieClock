@@ -11,6 +11,8 @@
 
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "esp_app_desc.h"
+#include "esp_ota_ops.h"
 #include "esp_log.h"
 
 static const char *TAG = "control";
@@ -149,6 +151,14 @@ int control_state_json(char *buf, size_t n)
     char alstat[24];
     alarm_status_str(&c, &lt, alstat, sizeof(alstat));
 
+    // Running firmware version + active OTA slot — lets the web UI confirm an
+    // over-the-air update took (the slot flips ota_0<->ota_1 after a flash).
+    const esp_app_desc_t *desc = esp_app_get_description();
+    const esp_partition_t *run = esp_ota_get_running_partition();
+    char fw[64];   // esp_app_desc version[32] + " @ " + partition label[17]
+    snprintf(fw, sizeof(fw), "%s @ %s", desc ? desc->version : "?",
+             run ? run->label : "?");
+
     return snprintf(buf, n,
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
@@ -161,7 +171,7 @@ int control_state_json(char *buf, size_t n)
         "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds\":%s,"
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"time\":\"%s\","
-        "\"ip\":\"%s\",\"rssi\":%d}",
+        "\"ip\":\"%s\",\"rssi\":%d,\"fw\":\"%s\"}",
         c.brightness, onoff(c.night_enabled), c.night_brightness,
         c.night_start_min / 60, c.night_start_min % 60,
         c.night_end_min / 60, c.night_end_min % 60,
@@ -174,5 +184,5 @@ int control_state_json(char *buf, size_t n)
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
         rom0, rom1, ds, t0, t1,
         onoff(settings_is_night(&c, mins)), onoff(netclock_synced()), tbuf,
-        ip, rssi);
+        ip, rssi, fw);
 }

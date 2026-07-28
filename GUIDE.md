@@ -254,8 +254,14 @@ pio device monitor      # serial console @ 115200
 After adding/removing a component or editing a `REQUIRES`/`idf_component.yml`,
 clear the stale CMake cache: `rm -rf .pio/build/esp32dev` then rebuild.
 
-Flash layout: 4 MB, custom `partitions.csv` (single ~2.8 MB app + NVS + SPIFFS,
-no OTA). App is ~37 % of the slot.
+Flash layout: 4 MB, custom `partitions.csv` — dual-OTA (two ~1.875 MB app slots +
+`otadata` + NVS + SPIFFS). App is ~55 % of a slot.
+
+**OTA updates:** after the first serial flash, push new builds over WiFi from the
+web UI's **Firmware** section (pick `.pio/build/esp32dev/firmware.bin` → Upload). It
+writes the spare slot and reboots into it; the **Running** line shows the version and
+active slot. A bad/interrupted upload leaves the current firmware bootable, and NVS
+(settings + credentials) is never touched.
 
 ### Melody table (`alarm_melody`)
 
@@ -520,8 +526,14 @@ pio device monitor      # sériová konzole @ 115200
 Po přidání/odebrání komponenty nebo úpravě `REQUIRES`/`idf_component.yml` smažte
 starou CMake cache: `rm -rf .pio/build/esp32dev` a sestavte znovu.
 
-Rozložení flash: 4 MB, vlastní `partitions.csv` (jediná ~2,8 MB app + NVS +
-SPIFFS, bez OTA). App zabírá ~37 % slotu.
+Rozložení flash: 4 MB, vlastní `partitions.csv` — dual-OTA (dva ~1,875 MB app
+sloty + `otadata` + NVS + SPIFFS). App zabírá ~55 % slotu.
+
+**OTA aktualizace:** po prvním flashnutí přes kabel nahrávejte nové buildy přes WiFi
+ze sekce **Firmware** ve webovém UI (vyberte `.pio/build/esp32dev/firmware.bin` →
+Upload). Zapíše se do volného slotu a hodiny se do něj restartují; řádek **Running**
+ukazuje verzi a aktivní slot. Neúspěšné/přerušené nahrání ponechá stávající firmware
+funkční a NVS (nastavení + údaje) zůstává nedotčené.
 
 ### Tabulka melodií (`alarm_melody`)
 

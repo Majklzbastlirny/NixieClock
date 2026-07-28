@@ -50,6 +50,22 @@ configure (`rm -rf .pio/build/esp32dev`) so the component manager re-runs.
 > The board has **no auto-reset**: hold IO0, tap EN, release IO0 to enter
 > download mode before `pio run -t upload`.
 
+### Over-the-air (OTA) updates
+
+The flash is a dual-OTA layout (two ~1.875 MB app slots + `otadata`), so after the
+**first** serial flash you can update firmware over WiFi and never cable the clock
+again:
+
+1. `pio run` to build a new `.pio/build/esp32dev/firmware.bin`.
+2. Open the clock's web UI (its IP is shown at the top of the page) → **Firmware**
+   section → pick that `firmware.bin` → **Upload**.
+3. It streams into the spare slot and reboots into it. The **Running** line shows the
+   version and active slot (`ota_0`/`ota_1`), which flips after each successful update.
+
+A failed or interrupted upload leaves the current firmware bootable — the new slot is
+only made active once the whole image is written and verified. Settings and
+WiFi/MQTT credentials live in NVS and are untouched by updates.
+
 ## First-time setup / credentials
 
 Credentials live in NVS (set via the SoftAP portal or the web UI).
@@ -128,7 +144,7 @@ everywhere instantly:
 
 ```
 platformio.ini             build config (env: esp32dev), custom partition table
-partitions.csv             single ~2.8 MB app + NVS + SPIFFS (4 MB flash)
+partitions.csv             dual-OTA: 2x ~1.875 MB app slots + otadata + NVS + SPIFFS (4 MB flash)
 sdkconfig.defaults         ESP-IDF defaults
 src/main.c                 app entry: orchestration + display draw loop
 components/

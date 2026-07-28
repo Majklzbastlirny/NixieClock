@@ -31,8 +31,13 @@ pio device monitor      # serial @ 115200
   `REQUIRES`, or editing an `idf_component.yml`, do `rm -rf .pio/build/esp32dev`
   then rebuild — otherwise you get bogus "No dependencies" + `fatal error: X.h:
   No such file` and managed components don't fetch.
-- 4 MB flash, custom `partitions.csv` (single ~2.8 MB app + NVS + SPIFFS, no OTA).
-  App currently ~37% of the slot, lots of headroom.
+- 4 MB flash, custom `partitions.csv`: **dual-OTA** — two ~1.875 MB app slots
+  (`ota_0`/`ota_1`) + `otadata` + NVS + SPIFFS. App currently ~55% of a slot.
+  Web-UI firmware upload (`POST /api/ota` in `webui.c`) streams a `.bin` into the
+  spare slot via `esp_ota_*` and reboots into it; NVS (settings + creds, fixed at
+  0x9000) is untouched. First flash after the repartition must still be over
+  serial. **Don't shrink a slot below the current binary + BLE headroom** — a
+  future NimBLE build targets ~1.4 MB.
 
 ## Architecture (the important part)
 
@@ -165,10 +170,13 @@ All planned milestones + polish are done (display, SNTP+RTC, brightness/night,
 anti-poison, temps + DS18B20 incl. live web assign/unassign + per-sensor HA
 entities, buttons, alarm+RTTTL, MQTT+HA, web UI, REST, provisioning, factory
 reset). Recent additions: alarm status string + melody preview across web/HA,
-and the `alarm_enabled`-driven colon cue (with snooze double-pip). Repo is public
-with `README.md` + bilingual `GUIDE.md` and the 3-way license in place.
+the `alarm_enabled`-driven colon cue (with snooze double-pip), and **dual-OTA +
+web firmware upload** (see the flash-layout note above). Repo is public with
+`README.md` + bilingual `GUIDE.md` and the 3-way license in place.
 
 Remaining ideas are optional and user-driven: REST GET aliases, BH1750
 auto-brightness (hook exists: `settings_effective_brightness` takes a sensor arg,
-currently `NO_SENSOR`), OTA (would need a repartition). Confirm scope with the
-user before building.
+currently `NO_SENSOR`), and **Shelly BLU H&T over BLE** (planned next: enable
+NimBLE observer-only, new `components/blescan` decoding BTHome v2 ads, a
+`TEMP_SRC_SHELLY` source + web picker — mirrors the DS18B20 flow; adapt from
+`../MAX7219_Display/src/bthome.cpp`). Confirm scope with the user before building.

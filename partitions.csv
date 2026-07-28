@@ -1,17 +1,24 @@
-# NixieClock partition table — 4MB flash, single large app (no OTA).
+# NixieClock partition table — 4MB flash, dual-OTA (web firmware updates).
 #
-# One ~2.7MB factory app slot: huge headroom over the ~960KB the MQTT build uses,
-# so web UI + REST + alarm/RTTTL all fit with room to spare. No OTA slots — if we
-# add OTA later this table changes and needs one more cabled flash.
+# Two ~1.875MB app slots (ota_0/ota_1) + otadata. The MQTT+web build uses
+# ~1.0MB (~54% of a slot); a future NimBLE (Shelly BTHome) build fits at ~76%,
+# so both features stay OTA-updatable without another cabled flash. The web UI
+# streams a new firmware.bin into the inactive slot and reboots into it.
 #
-# NVS stays at the default 0x9000 / 0x6000 so the settings + credentials the
-# firmware stores survive this repartition (only phy_init moves, no user data).
+# NVS and phy_init are kept BYTE-FOR-BYTE at their old offsets so the settings
+# AND WiFi/MQTT credentials the firmware stores survive this repartition — no
+# re-provisioning after the one-time serial flash that installs this table.
 #
-# 'storage' is a small SPIFFS area in case we serve web assets from a filesystem
-# instead of embedding them in the binary.
+# App partitions must be 64KB-aligned; the 56KB gap between otadata (ends
+# 0x12000) and ota_0 (0x20000) is that alignment padding.
+#
+# 'storage' is a small SPIFFS area (currently unused) reserved in case we ever
+# serve web assets from a filesystem instead of embedding them in the binary.
 #
 # Name,     Type, SubType,  Offset,    Size
 nvs,        data, nvs,      0x9000,    0x6000
 phy_init,   data, phy,      0xf000,    0x1000
-factory,    app,  factory,  0x10000,   0x2C0000
-storage,    data, spiffs,   0x2D0000,  0x130000
+otadata,    data, ota,      0x10000,   0x2000
+ota_0,      app,  ota_0,    0x20000,   0x1E0000
+ota_1,      app,  ota_1,    0x200000,  0x1E0000
+storage,    data, spiffs,   0x3E0000,  0x20000

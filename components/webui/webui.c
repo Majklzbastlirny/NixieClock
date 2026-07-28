@@ -12,6 +12,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_http_server.h"
+#include "esp_ota_ops.h"
+#include "esp_system.h"
 #include "esp_log.h"
 
 static const char *TAG = "webui";
@@ -102,6 +104,16 @@ static const char PAGE[] =
 "<label>MQTT status <span id='mqtt' class='s'></span></label>"
 "</fieldset>"
 
+"<h2>Firmware</h2><fieldset>"
+"<label>Running <span id='fw' class='s'></span></label>"
+"<label>Update <span><input type='file' id='fwfile' accept='.bin'>"
+"<button onclick='otaup()'>Upload</button></span></label>"
+"<label><progress id='otap' value='0' max='100' style='display:none;flex:1'></progress>"
+"<span id='otamsg' class='s'></span></label>"
+"<label><span class='m'>Pick the built firmware.bin; the device flashes the "
+"spare slot and reboots into it.</span></label>"
+"</fieldset>"
+
 "<h2>System</h2><fieldset>"
 "<label><span class='m'>Erases WiFi/MQTT credentials and all settings, then reboots into setup.</span>"
 "<button onclick='freset()' style='color:#f66'>Factory reset</button></label>"
@@ -152,6 +164,14 @@ static const char PAGE[] =
 "fetch('/api/netset',{method:'POST',body:b}).then(r=>r.text()).then(function(t){alert(t);loadnet();});}"
 "function freset(){if(confirm('Factory reset? This erases WiFi/MQTT credentials and all settings, then reboots into setup mode.'))"
 "fetch('/api/action?a=factory_reset',{method:'POST',body:'RESET'});}"
+"function otaup(){var f=document.getElementById('fwfile').files[0];if(!f){alert('pick a .bin');return;}"
+"var x=new XMLHttpRequest();x.open('POST','/api/ota');"
+"var p=document.getElementById('otap'),m=document.getElementById('otamsg');"
+"p.style.display='inline-block';p.value=0;m.textContent='uploading...';"
+"x.upload.onprogress=function(e){if(e.lengthComputable)p.value=100*e.loaded/e.total;};"
+"x.onload=function(){if(x.status==200){m.textContent='OK \\u2014 rebooting...';"
+"setTimeout(function(){location.reload();},9000);}else{m.textContent='failed: '+x.responseText;}};"
+"x.onerror=function(){m.textContent='upload failed';};x.send(f);}"
 "refresh();loadnet();setInterval(refresh,3000);"
 "</script></body></html>";
 
@@ -320,6 +340,63 @@ static esp_err_t netset_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Firmware OTA: the raw firmware.bin is streamed in the POST body, written to
+// the inactive OTA slot, and the device reboots into it. Runs on the httpd
+// worker task (8 KB stack, set below) — the 50 ms display loop is untouched. A
+// failed/aborted upload leaves the running slot bootable (set_boot only on
+// success). No auth here: same trust model as the rest of this LAN-only UI.
+static esp_err_t ota_post(httpd_req_t *req)
+{
+    const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
+    if (!part) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no OTA partition");
+        return ESP_OK;
+    }
+    ESP_LOGI(TAG, "OTA -> %s (%d bytes incoming)", part->label, req->content_len);
+
+    esp_ota_handle_t ota = 0;
+    esp_err_t err = esp_ota_begin(part, OTA_SIZE_UNKNOWN, &ota);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
+        return ESP_OK;
+    }
+
+    char buf[2048];
+    int remaining = req->content_len;
+    while (remaining > 0) {
+        int r = httpd_req_recv(req, buf, remaining < (int)sizeof(buf) ? remaining : (int)sizeof(buf));
+        if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (r <= 0) {
+            esp_ota_abort(ota);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "recv error");
+            return ESP_OK;
+        }
+        if (esp_ota_write(ota, buf, r) != ESP_OK) {
+            esp_ota_abort(ota);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "flash write failed");
+            return ESP_OK;
+        }
+        remaining -= r;
+    }
+
+    err = esp_ota_end(ota);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            err == ESP_ERR_OTA_VALIDATE_FAILED ? "bad image" : esp_err_to_name(err));
+        return ESP_OK;
+    }
+    if (esp_ota_set_boot_partition(part) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "set boot failed");
+        return ESP_OK;
+    }
+
+    httpd_resp_sendstr(req, "OK");
+    ESP_LOGW(TAG, "OTA complete, rebooting into %s", part->label);
+    vTaskDelay(pdMS_TO_TICKS(500));   // let the response flush before we reboot
+    esp_restart();
+    return ESP_OK;
+}
+
 void webui_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
@@ -342,6 +419,7 @@ void webui_start(void)
         { .uri = "/api/action", .method = HTTP_POST, .handler = action_post },
         { .uri = "/api/net",    .method = HTTP_GET,  .handler = net_get },
         { .uri = "/api/netset", .method = HTTP_POST, .handler = netset_post },
+        { .uri = "/api/ota",    .method = HTTP_POST, .handler = ota_post },
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++)
         httpd_register_uri_handler(srv, &routes[i]);
