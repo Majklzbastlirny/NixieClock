@@ -39,6 +39,7 @@ typedef struct {
     bool     ht, hh, hb;       // has temperature / humidity / battery
     float    t, h;
     int      batt;
+    uint32_t press_ms;         // last BTHome button-press event (0 = never)
 } dev_t;
 
 static dev_t             s_dev[MAXDEV];
@@ -126,7 +127,7 @@ static void bthome_handle(const uint8_t *mac, int8_t rssi,
     if (p[0] & 0x01) return;            // encrypted: not supported
     if ((p[0] >> 5) != 2) return;       // device-info bits 5-7 == 2 -> BTHome v2
 
-    bool ht = false, hh = false, hb = false;
+    bool ht = false, hh = false, hb = false, btn = false;
     float t = 0, h = 0; int batt = 0;
 
     int i = 1;
@@ -147,6 +148,7 @@ static void bthome_handle(const uint8_t *mac, int8_t rssi,
             case 0x03: h = (uint16_t)(d[0] | (d[1] << 8)) * 0.01f; hh = true; break;
             case 0x2E: h = d[0]; hh = true; break;
             case 0x01: batt = d[0]; hb = true; break;
+            case 0x3A: if (d[0] != 0) btn = true; break;   // button event (press/long/…)
             default: break;
         }
         i += 1 + ol;
@@ -171,16 +173,17 @@ static void bthome_handle(const uint8_t *mac, int8_t rssi,
     if (ht) { dev->ht = true; dev->t = t; }
     if (hh) { dev->hh = true; dev->h = h; }
     if (hb) { dev->hb = true; dev->batt = batt; }
-    if (ht) {
-        for (int s = 0; s < TEMP_SLOTS; s++)
-            if (s_slotmap[s].used && strcasecmp(ms, s_slotmap[s].mac) == 0) feed[s] = true;
-    }
+    if (btn) dev->press_ms = now;   // "identify" cue for the web picker
+    for (int s = 0; s < TEMP_SLOTS; s++)
+        if (s_slotmap[s].used && strcasecmp(ms, s_slotmap[s].mac) == 0) feed[s] = true;
     xSemaphoreGive(s_mtx);
 
-    if (ht) {
-        int centi = to_centi(t);
-        for (int s = 0; s < TEMP_SLOTS; s++)
-            if (feed[s]) temps_set_shelly(s, centi);
+    if (btn) ESP_LOGI(TAG, "BLU button press from %s", ms);
+
+    for (int s = 0; s < TEMP_SLOTS; s++) {
+        if (!feed[s]) continue;
+        if (ht) temps_set_shelly(s, to_centi(t));
+        if (hb) temps_set_shelly_battery(s, batt);
     }
 }
 
@@ -234,6 +237,10 @@ size_t blescan_devices_json(char *buf, size_t n)
         }
         if (s_dev[i].hh) o += snprintf(buf + o, n - o, ",\"h\":%d", (int)(s_dev[i].h + 0.5f));
         if (s_dev[i].hb) o += snprintf(buf + o, n - o, ",\"b\":%d", s_dev[i].batt);
+        if (s_dev[i].press_ms) {
+            uint32_t pa = (now - s_dev[i].press_ms) / 1000;   // seconds since press
+            if (pa < 30) o += snprintf(buf + o, n - o, ",\"pa\":%u", (unsigned)pa);
+        }
         o += snprintf(buf + o, n - o, "}");
         first = false;
     }

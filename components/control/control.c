@@ -77,6 +77,13 @@ static void fmt_centi(int centi, char *buf, size_t n)
     snprintf(buf, n, "%s%d.%02d", neg ? "-" : "", v / 100, v % 100);
 }
 
+// Battery percent, or "unknown" when the slot has no Shelly battery reading.
+static void fmt_batt(int pct, char *buf, size_t n)
+{
+    if (pct < 0) snprintf(buf, n, "unknown");
+    else         snprintf(buf, n, "%d", pct);
+}
+
 // --- apply ------------------------------------------------------------------
 bool control_apply_kv(const char *key, const char *val, int vlen)
 {
@@ -148,6 +155,10 @@ int control_state_json(char *buf, size_t n)
     if (temps_get(0, &cv)) fmt_centi(cv, t0, sizeof(t0));
     if (temps_get(1, &cv)) fmt_centi(cv, t1, sizeof(t1));
 
+    char b0[12], b1[12];
+    fmt_batt(temps_battery(0), b0, sizeof(b0));
+    fmt_batt(temps_battery(1), b1, sizeof(b1));
+
     char rom0[TEMP_ROM_STRLEN] = "", rom1[TEMP_ROM_STRLEN] = "";
     uint64_t a;
     memcpy(&a, c.temp_rom[0], 8); if (a) temps_rom_to_str(c.temp_rom[0], rom0);
@@ -199,6 +210,7 @@ int control_state_json(char *buf, size_t n)
         "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds\":%s,"
         "\"temp1_mac\":\"%s\",\"temp2_mac\":\"%s\","
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
+        "\"temp1_batt\":\"%s\",\"temp2_batt\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"time\":\"%s\","
         "\"ip\":\"%s\",\"rssi\":%d,\"fw\":\"%s\"}",
         c.brightness, onoff(c.night_enabled), c.night_brightness,
@@ -211,7 +223,7 @@ int control_state_json(char *buf, size_t n)
         alstat,
         onoff(c.temp_enabled), c.temp_decimals,
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
-        rom0, rom1, ds, mac0, mac1, t0, t1,
+        rom0, rom1, ds, mac0, mac1, t0, t1, b0, b1,
         onoff(settings_is_night(&c, mins)), onoff(netclock_synced()), tbuf,
         ip, rssi, fw);
 }

@@ -46,6 +46,14 @@ void temps_set_mqtt(int slot, int centi);
 // when the slot's chosen sensor advertises.
 void temps_set_shelly(int slot, int centi);
 
+// Push a Shelly BLU battery level (0..100 %) for a slot. Ignored unless the
+// slot's source is TEMP_SRC_SHELLY.
+void temps_set_shelly_battery(int slot, int pct);
+
+// Battery level (0..100 %) of the slot's Shelly sensor, or -1 if unknown
+// (not a Shelly source, no reading yet, or stale).
+int temps_battery(int slot);
+
 // List ROM addresses currently found on the 1-Wire bus. `out` is an array of
 // TEMP_ROM_STRLEN-char buffers. Returns the count written (capped at max).
 int temps_list_roms(char out[][TEMP_ROM_STRLEN], int max);

@@ -116,7 +116,10 @@ Open the web page — every detected DS18B20 **and** every nearby Shelly BLU sen
 is listed with its **live reading** and an **Assign** button, so you don't have to
 copy any codes by hand. (Shelly BLU must be left **unencrypted** in the Shelly app,
 which is the default.) Negative temperatures are shown by **blinking** the reading
-(the tubes have no minus sign), and the colon acts as the decimal point.
+(the tubes have no minus sign), and the colon acts as the decimal point. A Shelly
+sensor's **battery level** appears in the web UI and Home Assistant; when it drops
+**≤20 %** the clock **blinks just the colon** during that reading — a distinct cue
+from the negative-temperature whole-reading blink.
 
 ### Factory reset
 
@@ -394,7 +397,10 @@ Otevřete web — každé nalezené čidlo DS18B20 **i** každé blízké čidlo
 v seznamu s **živým náměrem** a tlačítkem **Assign** (přiřadit), takže nemusíte
 ručně opisovat žádné kódy. (Shelly BLU musí být v aplikaci Shelly **nešifrované**,
 což je výchozí stav.) Záporné teploty se ukazují **blikáním** náměru (tubice
-nemají znaménko mínus) a dvojtečka slouží jako desetinná čárka.
+nemají znaménko mínus) a dvojtečka slouží jako desetinná čárka. **Stav baterie**
+čidla Shelly je vidět ve webu i v Home Assistantu; když klesne na **≤20 %**, hodiny
+při daném náměru **blikají jen dvojtečkou** — odlišně od blikání celého náměru u
+záporných teplot.
 
 ### Tovární reset
 

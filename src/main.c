@@ -50,6 +50,7 @@ static const char *TAG = "main";
 #define MIN_VALID_YEAR  2023   // tm_year+1900 below this => time not set yet
 #define NO_SENSOR       (-1)   // BH1750 not present/enabled yet
 #define BRIGHT_STEP     25     // button brightness increment
+#define BATT_LOW_PCT    20     // Shelly sensor battery at/below this = "low"
 #define SHOW_TEMP_MS    4000   // "show temp now" duration (2s per slot)
 #define CONFIRM_MS      1000   // dismiss-confirm blink window (~2 blinks @250ms)
 #define IP_OCTET_MS     1000   // per-octet dwell when showing the IP
@@ -96,8 +97,10 @@ static void show_time(const struct tm *lt, bool h24)
 // the MM:SS pair = tubes 3|4) is lit steady to act as the decimal point: a
 // 2-decimal reading 23.45 lands as 2 3 : 4 5. This function drives the colon
 // itself. No minus glyph exists, so negative values blink the whole reading
-// (digits + colon) at ~2 Hz.
-static void show_temp(int16_t centi, uint8_t decimals, int64_t now_ms)
+// (digits + colon) at ~2 Hz. `batt_low` (Shelly source running low) blinks just
+// the colon while the digits stay steady — a distinct cue from the negative
+// whole-reading blink.
+static void show_temp(int16_t centi, uint8_t decimals, int64_t now_ms, bool batt_low)
 {
     bool neg = centi < 0;
     int v = neg ? -centi : centi;          // magnitude, centi-degrees
@@ -137,7 +140,10 @@ static void show_temp(int16_t centi, uint8_t decimals, int64_t now_ms)
         colon = false;                     // whole degrees: no decimal point
     }
     nixie_set_digits(d);
-    nixie_set_colon(colon);
+    if (batt_low && !neg)
+        nixie_set_colon((now_ms / 250) % 2 == 0);   // low-battery: blink the colon
+    else
+        nixie_set_colon(colon);
 }
 
 // "Alive but unset": every tube shows the same digit, cycling 0->9.
@@ -417,7 +423,9 @@ void app_main(void)
                 }
                 int16_t centi;
                 if (slot >= 0 && temps_get(slot, &centi)) {
-                    show_temp(centi, cfg.temp_decimals, now_ms);  // drives colon itself
+                    int batt = temps_battery(slot);
+                    bool low = (batt >= 0 && batt <= BATT_LOW_PCT);
+                    show_temp(centi, cfg.temp_decimals, now_ms, low);  // drives colon itself
                     drew_temp = true;
                 }
             }

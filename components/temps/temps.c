@@ -28,6 +28,7 @@ typedef struct {
     int64_t  ts_ms;       // when it was written (0 = never)
     uint8_t  src;         // temp_src_t, mirrored from settings
     uint8_t  rom[8];      // chosen DS18B20 ROM (when src == DS18B20)
+    int8_t   batt;        // Shelly battery % (0..100), -1 = unknown
 } slot_t;
 
 typedef struct {
@@ -66,6 +67,7 @@ void temps_init(void)
         s_slot[i].centi = TEMP_CENTI_INVALID;
         s_slot[i].ts_ms = 0;
         s_slot[i].src   = TEMP_SRC_NONE;
+        s_slot[i].batt  = -1;
     }
 }
 
@@ -79,6 +81,7 @@ void temps_apply_settings(const clock_settings_t *c)
         if (newsrc != s_slot[i].src || rom_changed) {
             s_slot[i].ts_ms = 0;
             s_slot[i].centi = TEMP_CENTI_INVALID;
+            s_slot[i].batt  = -1;
         }
         s_slot[i].src = newsrc;
         memcpy(s_slot[i].rom, c->temp_rom[i], 8);
@@ -127,6 +130,31 @@ void temps_set_shelly(int slot, int centi)
     }
     xSemaphoreGive(s_lock);
     ESP_LOGD(TAG, "shelly slot %d = %d", slot, centi);
+}
+
+void temps_set_shelly_battery(int slot, int pct)
+{
+    if (slot < 0 || slot >= TEMP_SLOTS) return;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_slot[slot].src == TEMP_SRC_SHELLY)
+        s_slot[slot].batt = (int8_t)pct;
+    xSemaphoreGive(s_lock);
+}
+
+int temps_battery(int slot)
+{
+    if (slot < 0 || slot >= TEMP_SLOTS) return -1;
+    int pct = -1;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    slot_t *s = &s_slot[slot];
+    // Only meaningful for a Shelly slot with a fresh reading.
+    if (s->src == TEMP_SRC_SHELLY && s->batt >= 0 && s->ts_ms != 0 &&
+        (now_ms() - s->ts_ms) < FRESH_MS)
+        pct = s->batt;
+    xSemaphoreGive(s_lock);
+    return pct;
 }
 
 // --- ROM string helpers -----------------------------------------------------

@@ -114,8 +114,6 @@ static void publish_state(void)
     struct tm lt;
     localtime_r(&now, &lt);
     int mins = lt.tm_hour * 60 + lt.tm_min;
-    char tbuf[24];
-    strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", &lt);
 
     char ip[16] = "0.0.0.0";
     esp_netif_t *nif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -172,7 +170,23 @@ static void publish_state(void)
     char alstat[24];
     alarm_status_str(&c, &lt, alstat, sizeof(alstat));
 
-    char buf[1500];
+    // Assigned Shelly MAC per slot (or "") and its battery % (or "unknown").
+    char mac0[18] = "", mac1[18] = "";
+    static const uint8_t zmac[6] = {0};
+    if (memcmp(c.shelly_mac[0], zmac, 6) != 0)
+        snprintf(mac0, sizeof(mac0), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 c.shelly_mac[0][0], c.shelly_mac[0][1], c.shelly_mac[0][2],
+                 c.shelly_mac[0][3], c.shelly_mac[0][4], c.shelly_mac[0][5]);
+    if (memcmp(c.shelly_mac[1], zmac, 6) != 0)
+        snprintf(mac1, sizeof(mac1), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 c.shelly_mac[1][0], c.shelly_mac[1][1], c.shelly_mac[1][2],
+                 c.shelly_mac[1][3], c.shelly_mac[1][4], c.shelly_mac[1][5]);
+    char bt0[12], bt1[12];
+    int p0 = temps_battery(0), p1 = temps_battery(1);
+    if (p0 < 0) snprintf(bt0, sizeof(bt0), "unknown"); else snprintf(bt0, sizeof(bt0), "%d", p0);
+    if (p1 < 0) snprintf(bt1, sizeof(bt1), "unknown"); else snprintf(bt1, sizeof(bt1), "%d", p1);
+
+    char buf[1600];
     int n = snprintf(buf, sizeof(buf),
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
@@ -183,9 +197,11 @@ static void publish_state(void)
         "\"temp1_src\":\"%s\",\"temp2_src\":\"%s\","
         "\"temp1_in\":%s,\"temp2_in\":%s,"
         "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds_roms\":\"%s\",\"ds\":{%s},"
+        "\"temp1_mac\":\"%s\",\"temp2_mac\":\"%s\","
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
+        "\"temp1_batt\":\"%s\",\"temp2_batt\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"rtc\":\"%s\","
-        "\"time\":\"%s\",\"ip\":\"%s\",\"rssi\":%d}",
+        "\"ip\":\"%s\",\"rssi\":%d}",
         c.brightness, onoff(c.night_enabled), c.night_brightness,
         c.night_start_min / 60, c.night_start_min % 60,
         c.night_end_min / 60, c.night_end_min % 60,
@@ -194,9 +210,9 @@ static void publish_state(void)
         c.alarm_snooze_min, onoff(alarm_is_ringing()), alstat,
         onoff(c.temp_enabled),
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
-        in0, in1, rom0, rom1, roms, dsobj, t0, t1,
+        in0, in1, rom0, rom1, roms, dsobj, mac0, mac1, t0, t1, bt0, bt1,
         onoff(settings_is_night(&c, mins)), onoff(netclock_synced()),
-        onoff(rtc_present()), tbuf, ip, rssi);
+        onoff(rtc_present()), ip, rssi);
     if (n > 0)
         esp_mqtt_client_publish(s_client, s_state, buf, 0, 0, 0);
 }
@@ -235,6 +251,16 @@ static void disc_cmd(const char *comp, const char *suffix, const char *name,
         name, s_node, suffix, s_avail, extra, s_dev);
 
     esp_mqtt_client_publish(s_client, topic, buf, 0, 1, true);
+}
+
+// Remove a previously-published discovery entity (retained empty payload), so
+// Home Assistant drops it instead of leaving a stale entity behind.
+static void disc_remove(const char *comp, const char *suffix)
+{
+    char topic[140];
+    snprintf(topic, sizeof(topic), "%s/%s/%s/%s/config",
+             DISC_PREFIX, comp, s_node, suffix);
+    esp_mqtt_client_publish(s_client, topic, "", 0, 1, true);
 }
 
 static void publish_discovery(void)
@@ -348,13 +374,21 @@ static void publish_discovery(void)
         snprintf(ex, sizeof(ex),
             ",\"unit_of_meas\":\"\\u00b0C\",\"dev_cla\":\"temperature\"");
         disc("sensor", suf, nm, suf, ex);
+
+        // Battery of the slot's Shelly sensor (unknown for non-Shelly sources).
+        snprintf(suf, sizeof(suf), "temp%d_batt", n);
+        snprintf(nm, sizeof(nm), "Temp slot %d battery", n);
+        snprintf(ex, sizeof(ex),
+            ",\"unit_of_meas\":\"%%\",\"dev_cla\":\"battery\",\"entity_category\":\"diagnostic\"");
+        disc("sensor", suf, nm, suf, ex);
     }
 
     // Discovered DS18B20 ROM addresses on the bus (read-only, comma-separated).
     disc("sensor", "ds_roms", "DS18B20 sensors", "ds_roms", "");
 
-    // Read-only sensors
-    disc("sensor", "time", "Time", "time", "");
+    // Read-only sensors. (The Time sensor was removed — it republished every 5 s
+    // and just spammed HA logs; delete any retained discovery from older builds.)
+    disc_remove("sensor", "time");
     snprintf(ex, sizeof(ex), ",\"unit_of_meas\":\"dBm\",\"dev_cla\":\"signal_strength\"");
     disc("sensor", "rssi", "WiFi signal", "rssi", ex);
     disc("sensor", "ip", "IP address", "ip", "");
