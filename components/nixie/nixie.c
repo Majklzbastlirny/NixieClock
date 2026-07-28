@@ -31,6 +31,7 @@ static volatile bool    s_dot[NIXIE_NUM_TUBES];
 static volatile uint8_t s_level   = 180;          // brightness 0..255
 static volatile int     s_on_us   = 0;            // derived from s_level
 static volatile uint8_t s_key_bits = 0xFF;        // 1 = released, 0 = pressed (per tube)
+static volatile bool    s_hold_off = false;       // force-blank latch (OTA); ISR-checked
 
 static portMUX_TYPE     s_mux = portMUX_INITIALIZER_UNLOCKED;
 static gptimer_handle_t s_timer;
@@ -85,7 +86,7 @@ static bool IRAM_ATTR on_alarm(gptimer_handle_t timer,
     if (!dead_phase) {
         // --- LIT phase for `tube` ---
         uint8_t d = s_digit[tube];
-        bool show = (d <= 9) && (on_us > 0);
+        bool show = (d <= 9) && (on_us > 0) && !s_hold_off;
 
         // Cathode FIRST (stable digit), then bring the anode up — never reverse.
         write_bcd(show ? d : BCD_BLANK);
@@ -219,6 +220,7 @@ void nixie_set_dot(int idx, bool on)
 
 void nixie_set_colon(bool on)
 {
+    if (s_hold_off) return;   // stay dark while blank-held (OTA)
     gpio_set_level(PIN_COLON, on ? 1 : 0);
 }
 
@@ -237,4 +239,18 @@ bool nixie_key_pressed(int idx)
 {
     if (idx < 0 || idx >= NIXIE_NUM_TUBES) return false;
     return (s_key_bits & (1u << idx)) == 0;
+}
+
+void nixie_hold_off(bool on)
+{
+    s_hold_off = on;
+    if (on) {
+        // Drive everything dark immediately so there's no visible frame before
+        // the ISR next runs (and so the tubes hold "off" if the ISR then stalls
+        // during a flash write). The ISR keeps them blanked while held.
+        write_select(SELECT_OFF);
+        write_bcd(BCD_BLANK);
+        gpio_set_level(PIN_DOT, 0);
+        gpio_set_level(PIN_COLON, 0);
+    }
 }

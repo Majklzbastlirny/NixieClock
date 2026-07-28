@@ -28,6 +28,7 @@
 #include "webui.h"
 #include "provision.h"
 #include "netcfg.h"
+#include "weblog.h"
 
 #include <time.h>
 #include <sys/time.h>
@@ -279,6 +280,7 @@ static void on_button(button_event_t ev)
 
 void app_main(void)
 {
+    weblog_init();   // capture logs to RAM first, so the web log sees boot too
     ESP_LOGI(TAG, "NixieClock starting (settings + RTC + SNTP + MQTT + temps)");
 
     nixie_init();

@@ -5,6 +5,8 @@
 #include "temps.h"
 #include "netcfg.h"
 #include "mqttctrl.h"
+#include "nixie.h"
+#include "weblog.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -114,6 +116,13 @@ static const char PAGE[] =
 "spare slot and reboots into it.</span></label>"
 "</fieldset>"
 
+"<h2>Logs</h2><fieldset>"
+"<label>Device log <span><label style='display:inline'><input type='checkbox' id='logauto' onchange='logtick()'>auto</label> "
+"<button onclick='loadlog()'>Refresh</button></span></label>"
+"<pre id='logbox' style='max-height:15rem;overflow:auto;background:#000;color:#9c9;"
+"font-size:.72rem;line-height:1.25;padding:.5rem;white-space:pre-wrap;margin:.3rem 0'></pre>"
+"</fieldset>"
+
 "<h2>System</h2><fieldset>"
 "<label><span class='m'>Erases WiFi/MQTT credentials and all settings, then reboots into setup.</span>"
 "<button onclick='freset()' style='color:#f66'>Factory reset</button></label>"
@@ -172,7 +181,13 @@ static const char PAGE[] =
 "x.onload=function(){if(x.status==200){m.textContent='OK \\u2014 rebooting...';"
 "setTimeout(function(){location.reload();},9000);}else{m.textContent='failed: '+x.responseText;}};"
 "x.onerror=function(){m.textContent='upload failed';};x.send(f);}"
-"refresh();loadnet();setInterval(refresh,3000);"
+"function loadlog(){fetch('/api/log').then(r=>r.text()).then(function(t){"
+"var b=document.getElementById('logbox');var atbot=b.scrollTop+b.clientHeight>=b.scrollHeight-4;"
+"b.textContent=t;if(atbot)b.scrollTop=b.scrollHeight;});}"
+"var logt=null;"
+"function logtick(){if(document.getElementById('logauto').checked){if(!logt)logt=setInterval(loadlog,3000);}"
+"else{clearInterval(logt);logt=null;}}"
+"refresh();loadnet();loadlog();setInterval(refresh,3000);"
 "</script></body></html>";
 
 static esp_err_t root_get(httpd_req_t *req)
@@ -354,9 +369,15 @@ static esp_err_t ota_post(httpd_req_t *req)
     }
     ESP_LOGI(TAG, "OTA -> %s (%d bytes incoming)", part->label, req->content_len);
 
+    // Blank the tubes for the whole flash: the writes below stall the CPU/cache
+    // in bursts, which otherwise makes the multiplexed display glitch badly.
+    // Cleared again only on failure — on success we reboot.
+    nixie_hold_off(true);
+
     esp_ota_handle_t ota = 0;
     esp_err_t err = esp_ota_begin(part, OTA_SIZE_UNKNOWN, &ota);
     if (err != ESP_OK) {
+        nixie_hold_off(false);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
         return ESP_OK;
     }
@@ -368,11 +389,13 @@ static esp_err_t ota_post(httpd_req_t *req)
         if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
         if (r <= 0) {
             esp_ota_abort(ota);
+            nixie_hold_off(false);
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "recv error");
             return ESP_OK;
         }
         if (esp_ota_write(ota, buf, r) != ESP_OK) {
             esp_ota_abort(ota);
+            nixie_hold_off(false);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "flash write failed");
             return ESP_OK;
         }
@@ -381,11 +404,13 @@ static esp_err_t ota_post(httpd_req_t *req)
 
     err = esp_ota_end(ota);
     if (err != ESP_OK) {
+        nixie_hold_off(false);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
                             err == ESP_ERR_OTA_VALIDATE_FAILED ? "bad image" : esp_err_to_name(err));
         return ESP_OK;
     }
     if (esp_ota_set_boot_partition(part) != ESP_OK) {
+        nixie_hold_off(false);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "set boot failed");
         return ESP_OK;
     }
@@ -394,6 +419,23 @@ static esp_err_t ota_post(httpd_req_t *req)
     ESP_LOGW(TAG, "OTA complete, rebooting into %s", part->label);
     vTaskDelay(pdMS_TO_TICKS(500));   // let the response flush before we reboot
     esp_restart();
+    return ESP_OK;
+}
+
+// Recent device log (RAM ring buffer from weblog). Dumped into a heap buffer so
+// the big copy stays off the httpd task stack.
+static esp_err_t log_get(httpd_req_t *req)
+{
+    size_t cap = weblog_capacity() + 1;
+    char *buf = malloc(cap);
+    if (!buf) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
+        return ESP_OK;
+    }
+    size_t len = weblog_dump(buf, cap);
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, buf, len);
+    free(buf);
     return ESP_OK;
 }
 
@@ -420,6 +462,7 @@ void webui_start(void)
         { .uri = "/api/net",    .method = HTTP_GET,  .handler = net_get },
         { .uri = "/api/netset", .method = HTTP_POST, .handler = netset_post },
         { .uri = "/api/ota",    .method = HTTP_POST, .handler = ota_post },
+        { .uri = "/api/log",    .method = HTTP_GET,  .handler = log_get },
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++)
         httpd_register_uri_handler(srv, &routes[i]);

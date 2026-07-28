@@ -35,6 +35,14 @@ void nixie_set_colon(bool on);
 void nixie_set_brightness(uint8_t level);
 uint8_t nixie_get_brightness(void);
 
+// --- Blank hold ----------------------------------------------------------
+// Force every tube + colon dark regardless of the framebuffer/brightness,
+// until cleared. Latched and checked inside the refresh ISR, so the display
+// stays cleanly off even when the drawing task is starved — used to keep the
+// tubes from glitching while an OTA flash write stalls the CPU. Framebuffer
+// writes while held are harmless (ignored on-screen until released).
+void nixie_hold_off(bool on);
+
 // --- Multiplexed buttons -------------------------------------------------
 // True while the front button sharing tube `idx`'s slot is held (debouncing
 // is the caller's job; this is the raw, already-multiplex-sampled level).
