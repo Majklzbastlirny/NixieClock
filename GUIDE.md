@@ -198,7 +198,7 @@ temp1_offset          calibration in °C, e.g. 0.5 / -1.2 (empty/0 = none), any 
 temp2_offset          calibration in °C
 temp1_sec / temp1_len  interlude: which second (0..59) temp1 shows + length (1..8 s)
 temp2_sec / temp2_len  interlude for temp2  (default 55/2)
-date_enabled          ON / OFF      (date interlude: DOW _ DD:MM)
+date_enabled          ON / OFF      (date interlude: DDMM : DoW)
 date_sec / date_len   date interlude second + length (default 57/2)
 tz                    POSIX timezone, e.g. CET-1CEST,M3.5.0,M10.5.0/3
 ```
@@ -496,7 +496,7 @@ temp1_offset          kalibrace ve °C, např. 0.5 / -1.2 (prázdné/0 = žádn�
 temp2_offset          kalibrace ve °C
 temp1_sec / temp1_len  vsuvka: v kterou sekundu (0..59) se temp1 zobrazí + délka (1..8 s)
 temp2_sec / temp2_len  vsuvka pro temp2  (výchozí 55/2)
-date_enabled          ON / OFF      (vsuvka s datem: DOW _ DD:MM)
+date_enabled          ON / OFF      (vsuvka s datem: DDMM : DoW)
 date_sec / date_len   sekunda + délka vsuvky s datem (výchozí 57/2)
 tz                    POSIX časová zóna, např. CET-1CEST,M3.5.0,M10.5.0/3
 ```
