@@ -29,6 +29,7 @@
 #include "provision.h"
 #include "netcfg.h"
 #include "weblog.h"
+#include "blescan.h"
 
 #include <time.h>
 #include <sys/time.h>
@@ -323,6 +324,8 @@ void app_main(void)
     netclock_start();
     mqttctrl_start();
     webui_start();
+    blescan_start();                 // passive BLE scan for Shelly BLU (BTHome)
+    blescan_apply_settings(&cfg);     // cache slot -> Shelly MAC assignments
     antipoison_init();
     apply_antipoison(&cfg);
     buttons_init(on_button);
@@ -345,6 +348,7 @@ void app_main(void)
             cfg_ver = settings_version();
             apply_antipoison(&cfg);
             temps_apply_settings(&cfg);
+            blescan_apply_settings(&cfg);
             last_level = -1;             // force a re-apply of brightness
         }
 

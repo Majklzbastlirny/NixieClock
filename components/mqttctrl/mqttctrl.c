@@ -82,6 +82,7 @@ static const char *src_name(uint8_t s)
     switch (s) {
     case TEMP_SRC_MQTT:    return "mqtt";
     case TEMP_SRC_DS18B20: return "ds18b20";
+    case TEMP_SRC_SHELLY:  return "shelly";
     default:               return "none";
     }
 }
@@ -315,7 +316,7 @@ static void publish_discovery(void)
         snprintf(suf, sizeof(suf), "temp%d_src", n);
         snprintf(nm, sizeof(nm), "Temp slot %d source", n);
         snprintf(ex, sizeof(ex),
-            ",\"cmd_t\":\"%s/temp%d_source\",\"options\":[\"none\",\"mqtt\",\"ds18b20\"]", s_cmd, n);
+            ",\"cmd_t\":\"%s/temp%d_source\",\"options\":[\"none\",\"mqtt\",\"ds18b20\",\"shelly\"]", s_cmd, n);
         disc("select", suf, nm, suf, ex);
 
         snprintf(suf, sizeof(suf), "temp%d_in", n);
@@ -332,6 +333,14 @@ static void publish_discovery(void)
         snprintf(nm, sizeof(nm), "Temp slot %d DS18B20 ROM", n);
         snprintf(ex, sizeof(ex),
             ",\"cmd_t\":\"%s/temp%d_rom\",\"pattern\":\"^([0-9A-Fa-f]{16})?$\"", s_cmd, n);
+        disc("text", suf, nm, suf, ex);
+
+        // Shelly BLU MAC for this slot (used when source is shelly). The web UI
+        // has a live picker; this text entity is the HA-side equivalent.
+        snprintf(suf, sizeof(suf), "temp%d_mac", n);
+        snprintf(nm, sizeof(nm), "Temp slot %d Shelly MAC", n);
+        snprintf(ex, sizeof(ex),
+            ",\"cmd_t\":\"%s/temp%d_mac\",\"pattern\":\"^([0-9A-Fa-f:]{17})?$\"", s_cmd, n);
         disc("text", suf, nm, suf, ex);
 
         snprintf(suf, sizeof(suf), "temp%d", n);

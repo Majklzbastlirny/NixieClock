@@ -135,8 +135,10 @@ everywhere instantly:
   BH1750 light sensor.
 - Anti-cathode-poisoning cycle (periodic + on-demand).
 - Two temperature slots shown near the end of each minute (sec 52–55), each fed
-  by MQTT or a DS18B20; configurable decimals; negatives shown by blinking
-  (no minus glyph), colon used as the decimal point.
+  by MQTT, a DS18B20, or a **Shelly BLU H&T** read directly over BLE (passive
+  BTHome v2 scan — no hub/gateway/cloud, picked from a live list in the web UI);
+  configurable decimals; negatives shown by blinking (no minus glyph), colon
+  used as the decimal point.
 - Alarm with snooze + dismiss, day-of-week mask, and RTTTL melodies.
 - Cold-start "slot machine" animation until the time is known.
 
@@ -160,6 +162,8 @@ components/
   mqttctrl/                MQTT client + Home Assistant autodiscovery
   webui/                   self-hosted web UI + REST/JSON API
   temps/                   temperature slots + DS18B20 (RMT 1-Wire)
+  blescan/                 NimBLE passive scan → Shelly BLU H&T (BTHome v2)
+  weblog/                  esp_log → RAM ring buffer, read over /api/log
   buttons/                 multiplexed-button debounce + classification
   alarm/                   alarm state machine
   buzzer/                  LEDC tone + RTTTL player

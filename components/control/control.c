@@ -36,6 +36,7 @@ static const char *src_name(uint8_t s)
     switch (s) {
     case TEMP_SRC_MQTT:    return "mqtt";
     case TEMP_SRC_DS18B20: return "ds18b20";
+    case TEMP_SRC_SHELLY:  return "shelly";
     default:               return "none";
     }
 }
@@ -44,7 +45,27 @@ static uint8_t src_from_name(const char *s)
 {
     if (strcasecmp(s, "mqtt") == 0)    return TEMP_SRC_MQTT;
     if (strcasecmp(s, "ds18b20") == 0) return TEMP_SRC_DS18B20;
+    if (strcasecmp(s, "shelly") == 0)  return TEMP_SRC_SHELLY;
     return TEMP_SRC_NONE;
+}
+
+// Shelly BLU BLE MAC <-> "AA:BB:CC:DD:EE:FF". parse returns false on malformed.
+static void mac_to_str(const uint8_t mac[6], char out[18])
+{
+    snprintf(out, 18, "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+static bool parse_mac(const char *s, uint8_t out[6])
+{
+    if (!s) return false;
+    unsigned b[6];
+    char tail = 0;
+    int n = sscanf(s, "%2x:%2x:%2x:%2x:%2x:%2x%c",
+                   &b[0], &b[1], &b[2], &b[3], &b[4], &b[5], &tail);
+    if (n != 6) return false;   // exactly six octets, nothing trailing
+    for (int i = 0; i < 6; i++) out[i] = (uint8_t)b[i];
+    return true;
 }
 
 static const char *onoff(bool v) { return v ? "ON" : "OFF"; }
@@ -80,6 +101,8 @@ bool control_apply_kv(const char *key, const char *val, int vlen)
     else if (K("temp2_source"))     c.temp_src[1] = src_from_name(val);
     else if (K("temp1_rom")) { if (vlen == 0) memset(c.temp_rom[0], 0, 8); else if (!temps_parse_rom(val, c.temp_rom[0])) ok = false; }
     else if (K("temp2_rom")) { if (vlen == 0) memset(c.temp_rom[1], 0, 8); else if (!temps_parse_rom(val, c.temp_rom[1])) ok = false; }
+    else if (K("temp1_mac")) { if (vlen == 0) memset(c.shelly_mac[0], 0, 6); else if (!parse_mac(val, c.shelly_mac[0])) ok = false; }
+    else if (K("temp2_mac")) { if (vlen == 0) memset(c.shelly_mac[1], 0, 6); else if (!parse_mac(val, c.shelly_mac[1])) ok = false; }
     else if (K("night_start")) { int m = hhmm_to_min(val); if (m >= 0) c.night_start_min = m; else ok = false; }
     else if (K("night_end"))   { int m = hhmm_to_min(val); if (m >= 0) c.night_end_min = m; else ok = false; }
     else if (K("alarm_time"))  { int m = hhmm_to_min(val); if (m >= 0) { c.alarm_hour = m / 60; c.alarm_min = m % 60; } else ok = false; }
@@ -130,6 +153,11 @@ int control_state_json(char *buf, size_t n)
     memcpy(&a, c.temp_rom[0], 8); if (a) temps_rom_to_str(c.temp_rom[0], rom0);
     memcpy(&a, c.temp_rom[1], 8); if (a) temps_rom_to_str(c.temp_rom[1], rom1);
 
+    char mac0[18] = "", mac1[18] = "";
+    static const uint8_t zmac[6] = {0};
+    if (memcmp(c.shelly_mac[0], zmac, 6) != 0) mac_to_str(c.shelly_mac[0], mac0);
+    if (memcmp(c.shelly_mac[1], zmac, 6) != 0) mac_to_str(c.shelly_mac[1], mac1);
+
     // Every DS18B20 on the bus, with its live reading and which slot (if any)
     // it is assigned to: [{"rom":"..","t":"23.45","slot":1},...]. The web UI
     // renders this with per-sensor assign/unassign buttons.
@@ -169,6 +197,7 @@ int control_state_json(char *buf, size_t n)
         "\"temp_enabled\":\"%s\",\"temp_decimals\":%u,"
         "\"temp1_source\":\"%s\",\"temp2_source\":\"%s\","
         "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds\":%s,"
+        "\"temp1_mac\":\"%s\",\"temp2_mac\":\"%s\","
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"time\":\"%s\","
         "\"ip\":\"%s\",\"rssi\":%d,\"fw\":\"%s\"}",
@@ -182,7 +211,7 @@ int control_state_json(char *buf, size_t n)
         alstat,
         onoff(c.temp_enabled), c.temp_decimals,
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
-        rom0, rom1, ds, t0, t1,
+        rom0, rom1, ds, mac0, mac1, t0, t1,
         onoff(settings_is_night(&c, mins)), onoff(netclock_synced()), tbuf,
         ip, rssi, fw);
 }

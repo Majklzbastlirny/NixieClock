@@ -107,13 +107,16 @@ The colon between the digits also signals the alarm state at a glance:
 The clock can show up to **two** temperatures near the end of each minute. Each
 slot can be fed by either:
 
-- a **plug-in DS18B20 sensor** (a small wired probe), or
+- a **plug-in DS18B20 sensor** (a small wired probe),
+- a **Shelly BLU H&T** sensor (wireless, read directly over Bluetooth — no hub,
+  gateway or cloud needed), or
 - a value **pushed from your smart home** (e.g. the outdoor temperature).
 
-If you plug in DS18B20 sensors, open the web page — every detected sensor is
-listed with its **live reading** and an **Assign** button, so you don't have to
-copy any codes by hand. Negative temperatures are shown by **blinking** the
-reading (the tubes have no minus sign), and the colon acts as the decimal point.
+Open the web page — every detected DS18B20 **and** every nearby Shelly BLU sensor
+is listed with its **live reading** and an **Assign** button, so you don't have to
+copy any codes by hand. (Shelly BLU must be left **unencrypted** in the Shelly app,
+which is the default.) Negative temperatures are shown by **blinking** the reading
+(the tubes have no minus sign), and the colon acts as the decimal point.
 
 ### Factory reset
 
@@ -152,6 +155,9 @@ Served by the clock itself at `http://<clock-ip>/`.
 | `POST /api/action?a=<action>` | Trigger an action; payload in body where noted |
 | `GET /api/net` | Current network config |
 | `POST /api/netset` | Update WiFi/MQTT credentials |
+| `POST /api/ota` | Firmware update: raw `firmware.bin` in the body |
+| `GET /api/log` | Recent device log (RAM buffer, plain text) |
+| `GET /api/blescan` | Nearby Shelly BLU (BTHome) sensors as JSON |
 
 **Settings keys** (`/api/set?k=…`, value in body):
 
@@ -171,10 +177,12 @@ alarm_snooze          minutes
 alarm_dow             0..127        (bitmask: bit0=Sun … bit6=Sat; 0 = every day)
 temp_enabled          ON / OFF
 temp_decimals         0..2
-temp1_source          none / mqtt / ds18b20
-temp2_source          none / mqtt / ds18b20
-temp1_rom             16-hex ROM    (empty string clears)
+temp1_source          none / mqtt / ds18b20 / shelly
+temp2_source          none / mqtt / ds18b20 / shelly
+temp1_rom             16-hex ROM    (empty string clears; used when source=ds18b20)
 temp2_rom             16-hex ROM
+temp1_mac             AA:BB:CC:DD:EE:FF  (empty clears; used when source=shelly)
+temp2_mac             AA:BB:CC:DD:EE:FF
 ```
 
 **Actions** (`/api/action?a=…`):
@@ -377,12 +385,15 @@ Dvojtečka mezi číslicemi také naznačuje stav budíku na první pohled:
 Hodiny umí ukázat až **dvě** teploty ke konci každé minuty. Každý slot může být
 napájen buď:
 
-- **připojeným čidlem DS18B20** (malá sonda na drátku), nebo
+- **připojeným čidlem DS18B20** (malá sonda na drátku),
+- čidlem **Shelly BLU H&T** (bezdrátové, čtené přímo přes Bluetooth — bez hubu,
+  brány i cloudu), nebo
 - hodnotou **poslanou z chytré domácnosti** (např. venkovní teplota).
 
-Když připojíte čidla DS18B20, otevřete web — každé nalezené čidlo je v seznamu s
-**živým náměrem** a tlačítkem **Assign** (přiřadit), takže nemusíte ručně
-opisovat žádné kódy. Záporné teploty se ukazují **blikáním** náměru (tubice
+Otevřete web — každé nalezené čidlo DS18B20 **i** každé blízké čidlo Shelly BLU je
+v seznamu s **živým náměrem** a tlačítkem **Assign** (přiřadit), takže nemusíte
+ručně opisovat žádné kódy. (Shelly BLU musí být v aplikaci Shelly **nešifrované**,
+což je výchozí stav.) Záporné teploty se ukazují **blikáním** náměru (tubice
 nemají znaménko mínus) a dvojtečka slouží jako desetinná čárka.
 
 ### Tovární reset
@@ -424,6 +435,9 @@ Hostují samy hodiny na `http://<ip-hodin>/`.
 | `POST /api/action?a=<akce>` | Spustit akci; data v těle kde je uvedeno |
 | `GET /api/net` | Aktuální síťová konfigurace |
 | `POST /api/netset` | Změnit WiFi/MQTT údaje |
+| `POST /api/ota` | Aktualizace firmwaru: `firmware.bin` v těle |
+| `GET /api/log` | Nedávný log zařízení (RAM buffer, text) |
+| `GET /api/blescan` | Blízká čidla Shelly BLU (BTHome) jako JSON |
 
 **Klíče nastavení** (`/api/set?k=…`, hodnota v těle):
 
@@ -443,10 +457,12 @@ alarm_snooze          minuty
 alarm_dow             0..127        (bitmaska: bit0=Ne … bit6=So; 0 = každý den)
 temp_enabled          ON / OFF
 temp_decimals         0..2
-temp1_source          none / mqtt / ds18b20
-temp2_source          none / mqtt / ds18b20
-temp1_rom             16 hex znaků ROM   (prázdný řetězec smaže)
+temp1_source          none / mqtt / ds18b20 / shelly
+temp2_source          none / mqtt / ds18b20 / shelly
+temp1_rom             16 hex znaků ROM   (prázdný řetězec smaže; když source=ds18b20)
 temp2_rom             16 hex znaků ROM
+temp1_mac             AA:BB:CC:DD:EE:FF  (prázdný smaže; když source=shelly)
+temp2_mac             AA:BB:CC:DD:EE:FF
 ```
 
 **Akce** (`/api/action?a=…`):

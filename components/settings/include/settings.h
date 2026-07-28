@@ -21,7 +21,7 @@
 #include <stddef.h>
 
 #define SETTINGS_MAGIC   0x4E58u   // 'NX'
-#define SETTINGS_VERSION 2
+#define SETTINGS_VERSION 3
 
 #define TEMP_SLOTS 2
 
@@ -30,6 +30,7 @@ typedef enum {
     TEMP_SRC_NONE    = 0,
     TEMP_SRC_MQTT    = 1,   // value pushed in over MQTT (HA automation)
     TEMP_SRC_DS18B20 = 2,   // a 1-Wire sensor selected by ROM address
+    TEMP_SRC_SHELLY  = 3,   // a Shelly BLU H&T (BTHome v2 BLE) picked by MAC
 } temp_src_t;
 
 typedef struct {
@@ -67,6 +68,7 @@ typedef struct {
     uint8_t  temp_decimals;                // digits after the point: 0, 1 or 2
     uint8_t  temp_src[TEMP_SLOTS];         // per slot: temp_src_t
     uint8_t  temp_rom[TEMP_SLOTS][8];      // DS18B20 ROM code (src == DS18B20)
+    uint8_t  shelly_mac[TEMP_SLOTS][6];    // Shelly BLU BLE MAC (src == SHELLY)
 } clock_settings_t;
 
 // Load from NVS (or defaults if absent/corrupt) and prepare the lock. Also

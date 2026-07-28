@@ -115,6 +115,20 @@ void temps_set_mqtt(int slot, int centi)
     ESP_LOGD(TAG, "mqtt slot %d = %d", slot, centi);
 }
 
+void temps_set_shelly(int slot, int centi)
+{
+    if (slot < 0 || slot >= TEMP_SLOTS) return;
+    if (centi < INT16_MIN + 1) centi = INT16_MIN + 1;
+    if (centi > INT16_MAX) centi = INT16_MAX;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_slot[slot].src == TEMP_SRC_SHELLY) {
+        s_slot[slot].centi = (int16_t)centi;
+        s_slot[slot].ts_ms = now_ms();
+    }
+    xSemaphoreGive(s_lock);
+    ESP_LOGD(TAG, "shelly slot %d = %d", slot, centi);
+}
+
 // --- ROM string helpers -----------------------------------------------------
 void temps_rom_to_str(const uint8_t rom[8], char out[TEMP_ROM_STRLEN])
 {

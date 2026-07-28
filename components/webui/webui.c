@@ -7,6 +7,7 @@
 #include "mqttctrl.h"
 #include "nixie.h"
 #include "weblog.h"
+#include "blescan.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -81,16 +82,19 @@ static const char PAGE[] =
 "<label>Decimals <select id='temp_decimals' onchange='set(this)'>"
 "<option>0</option><option>1</option><option>2</option></select></label>"
 "<label>Slot 1 source <select id='temp1_source' onchange='set(this)'>"
-"<option>none</option><option>mqtt</option><option>ds18b20</option></select></label>"
+"<option>none</option><option>mqtt</option><option>ds18b20</option><option>shelly</option></select></label>"
 "<label>Slot 1 value <span><input id='temp1_in' size='6'>"
 "<button onclick=\"inp(1)\">Set</button> <span id='temp1'></span></span></label>"
 "<label>Slot 2 source <select id='temp2_source' onchange='set(this)'>"
-"<option>none</option><option>mqtt</option><option>ds18b20</option></select></label>"
+"<option>none</option><option>mqtt</option><option>ds18b20</option><option>shelly</option></select></label>"
 "<label>Slot 2 value <span><input id='temp2_in' size='6'>"
 "<button onclick=\"inp(2)\">Set</button> <span id='temp2'></span></span></label>"
 "<div class='s' style='margin:.5rem 0 .2rem'>DS18B20 sensors on the bus "
 "(assign one to a slot to show it on the tubes):</div>"
 "<div id='dslist' class='s'>scanning...</div>"
+"<div class='s' style='margin:.6rem 0 .2rem'>Shelly BLU sensors seen over BLE "
+"(assign one to a slot; the source becomes 'shelly'):</div>"
+"<div id='shellylist' class='s'>scanning...</div>"
 "</fieldset>"
 
 "<h2>Network</h2><fieldset>"
@@ -163,6 +167,19 @@ static const char PAGE[] =
 "function dsas(n,i){var rom=(S.ds&&S.ds[i])?S.ds[i].rom:'';if(!rom)return;"
 "post('/api/set?k=temp'+n+'_source','ds18b20').then(function(){post('/api/set?k=temp'+n+'_rom',rom);});}"
 "function dsun(n){post('/api/set?k=temp'+n+'_source','none').then(function(){post('/api/set?k=temp'+n+'_rom','');});}"
+"var SH=[];"
+"function shlist(a){SH=a;var h='';for(var i=0;i<a.length;i++){var d=a[i];"
+"var v=[];if(d.ht)v.push(d.t+'\\u00b0C');if(d.hh)v.push(d.h+'%');if(d.hb)v.push('bat '+d.b+'%');"
+"var as=(S.temp1_mac==d.mac)?1:((S.temp2_mac==d.mac)?2:0);"
+"h+=\"<div class='ds'><span><code>\"+d.mac+\"</code> <span class='s'>\"+(d.name||'')+' '+d.rssi+'dBm'+(v.length?' '+v.join(' '):'')+\"</span></span><span>\";"
+"if(as)h+='slot '+as+' <button onclick=shun('+as+')>Unassign</button>';"
+"else h+='<button onclick=shas(1,'+i+')>&#8594;1</button> <button onclick=shas(2,'+i+')>&#8594;2</button>';"
+"h+='</span></div>';}"
+"document.getElementById('shellylist').innerHTML=a.length?h:'none seen yet';}"
+"function shas(n,i){var mac=(SH[i])?SH[i].mac:'';if(!mac)return;"
+"post('/api/set?k=temp'+n+'_source','shelly').then(function(){post('/api/set?k=temp'+n+'_mac',mac);});}"
+"function shun(n){post('/api/set?k=temp'+n+'_source','none').then(function(){post('/api/set?k=temp'+n+'_mac','');});}"
+"function loadshelly(){fetch('/api/blescan').then(r=>r.json()).then(shlist);}"
 "function refresh(){fetch('/api/state').then(r=>r.json()).then(render)}"
 "function loadnet(){fetch('/api/net').then(r=>r.json()).then(function(n){"
 "document.getElementById('n_ssid').value=n.wifi_ssid;document.getElementById('n_mhost').value=n.mqtt_host;"
@@ -187,7 +204,7 @@ static const char PAGE[] =
 "var logt=null;"
 "function logtick(){if(document.getElementById('logauto').checked){if(!logt)logt=setInterval(loadlog,3000);}"
 "else{clearInterval(logt);logt=null;}}"
-"refresh();loadnet();loadlog();setInterval(refresh,3000);"
+"refresh();loadnet();loadlog();loadshelly();setInterval(refresh,3000);setInterval(loadshelly,5000);"
 "</script></body></html>";
 
 static esp_err_t root_get(httpd_req_t *req)
@@ -459,6 +476,21 @@ static esp_err_t log_get(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Discovered Shelly BLU (BTHome) devices for the temperature picker.
+static esp_err_t blescan_get(httpd_req_t *req)
+{
+    char *buf = malloc(2048);
+    if (!buf) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
+        return ESP_OK;
+    }
+    size_t len = blescan_devices_json(buf, 2048);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, buf, len);
+    free(buf);
+    return ESP_OK;
+}
+
 void webui_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
@@ -486,6 +518,7 @@ void webui_start(void)
         { .uri = "/api/netset", .method = HTTP_POST, .handler = netset_post },
         { .uri = "/api/ota",    .method = HTTP_POST, .handler = ota_post },
         { .uri = "/api/log",    .method = HTTP_GET,  .handler = log_get },
+        { .uri = "/api/blescan",.method = HTTP_GET,  .handler = blescan_get },
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++)
         httpd_register_uri_handler(srv, &routes[i]);

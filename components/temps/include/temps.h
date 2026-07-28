@@ -41,6 +41,11 @@ bool temps_get(int slot, int16_t *centi_out);
 // slot's source is TEMP_SRC_MQTT.
 void temps_set_mqtt(int slot, int centi);
 
+// Push a Shelly BLU (BTHome BLE) value (centi-degrees C) into a slot. Ignored
+// unless that slot's source is TEMP_SRC_SHELLY. Called by the blescan component
+// when the slot's chosen sensor advertises.
+void temps_set_shelly(int slot, int centi);
+
 // List ROM addresses currently found on the 1-Wire bus. `out` is an array of
 // TEMP_ROM_STRLEN-char buffers. Returns the count written (capped at max).
 int temps_list_roms(char out[][TEMP_ROM_STRLEN], int max);

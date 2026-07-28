@@ -64,7 +64,10 @@ PWM brightness — **do not reorder the cathode-before-anode writes or remove th
 dead-time**, that's the ghosting fix), `i2cbus` (shared I²C + scanner), `rtcdev`
 (PCF8563/DS1307/DS3231 auto-detect), `netclock` (WiFi+SNTP), `netcfg`
 (credential store), `provision` (SoftAP portal), `settings`, `control`,
-`mqttctrl`, `webui`, `temps` (slots + DS18B20 via RMT 1-Wire), `buttons`,
+`mqttctrl`, `webui`, `temps` (slots + DS18B20 via RMT 1-Wire), `blescan`
+(NimBLE passive scan → Shelly BLU H&T over BTHome v2; feeds a temp slot via
+`temps_set_shelly` when a slot's source is `TEMP_SRC_SHELLY` and its
+`shelly_mac` matches — unencrypted BTHome only), `buttons`,
 `alarm`, `buzzer`, `antipoison`, `weblog` (esp_log→RAM ring buffer, read back
 over `GET /api/log` + a Logs panel — the assembled clock has no serial, so this
 is how you read its logs; `weblog_init()` runs first in `app_main`).
@@ -131,7 +134,16 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   ~10s=factory reset). Snooze is a dedicated GPIO.
 - **Settings schema:** bump `SETTINGS_VERSION` in `settings.h` when you change
   `clock_settings_t`; a version/size mismatch resets to defaults (creds are in a
-  separate NVS namespace, so they survive).
+  separate NVS namespace, so they survive). (v2→v3 added `shelly_mac`.)
+- **BLE/NimBLE config (burned us):** BT is on for `blescan` (`sdkconfig.defaults`).
+  Two non-obvious pins: (1) do **not** trim NimBLE to observer-only roles — that
+  leaves `ble_hs_resolv` referencing `ble_sm_alg_encrypt` which then isn't
+  compiled → link error; keep the default host roles, the real saver is
+  `BTDM_CTRL_MODE_BLE_ONLY` (no Classic). (2) BT controller + WiFi/BT
+  coexistence overflow IRAM alongside the gptimer-in-IRAM flags, so
+  `CONFIG_ESP_WIFI_IRAM_OPT`/`_RX_IRAM_OPT` are **off** to reclaim it. After
+  editing `sdkconfig.defaults`, delete `sdkconfig.esp32dev`+`sdkconfig` and
+  `rm -rf .pio/build/esp32dev` so PlatformIO regenerates from defaults.
 
 ## Git
 
@@ -185,9 +197,12 @@ the `alarm_enabled`-driven colon cue (with snooze double-pip), and **dual-OTA +
 web firmware upload** (see the flash-layout note above). Repo is public with
 `README.md` + bilingual `GUIDE.md` and the 3-way license in place.
 
+Also done: **Shelly BLU H&T over BLE** — `blescan` (NimBLE passive BTHome v2 scan)
++ `TEMP_SRC_SHELLY` source + `shelly_mac` per slot + live web picker
+(`GET /api/blescan`) + HA select/MAC entities; verified on hardware (a BLU H&T fed
+`temp1` over BLE while WiFi/MQTT stayed up).
+
 Remaining ideas are optional and user-driven: REST GET aliases, BH1750
 auto-brightness (hook exists: `settings_effective_brightness` takes a sensor arg,
-currently `NO_SENSOR`), and **Shelly BLU H&T over BLE** (planned next: enable
-NimBLE observer-only, new `components/blescan` decoding BTHome v2 ads, a
-`TEMP_SRC_SHELLY` source + web picker — mirrors the DS18B20 flow; adapt from
-`../MAX7219_Display/src/bthome.cpp`). Confirm scope with the user before building.
+currently `NO_SENSOR`), encrypted-BTHome (AES-CCM) support for Shelly BLU. Confirm
+scope with the user before building.

@@ -19,3 +19,22 @@ CONFIG_GPTIMER_CTRL_FUNC_IN_IRAM=y
 # Brownout can false-trigger on the shared 5V rail (MA7805, <=200mA) at HV
 # inrush; lower the threshold a notch. Adjust if you see resets.
 CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
+
+# --- Bluetooth: NimBLE for Shelly BLU H&T (BTHome v2) passive scan ------------
+# We only ever scan advertisements (never advertise/connect), but NimBLE host
+# roles are left at their defaults: trimming to observer-only leaves
+# ble_hs_resolv referencing SM crypto that then isn't compiled (link error), so
+# the small extra footprint isn't worth it. The real saver is a BLE-only
+# controller (no Classic). WiFi and BLE share the one radio via SW coexistence.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BTDM_CTRL_MODE_BLE_ONLY=y
+CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=n
+CONFIG_BTDM_CTRL_MODE_BTDM=n
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+# The BT controller + WiFi/BT coexistence overflow IRAM alongside the
+# gptimer-in-IRAM display flags. Move the WiFi hot paths to flash (a small
+# throughput hit, irrelevant for SNTP/MQTT/web) to reclaim the IRAM.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
