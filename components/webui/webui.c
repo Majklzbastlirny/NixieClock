@@ -355,11 +355,17 @@ static esp_err_t netset_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Give up on a stalled upload after this many back-to-back recv timeouts
+// (each = OTA_RECV_TIMEOUT_S). ~30 s total before we abort and recover.
+#define OTA_RECV_TIMEOUT_S    10
+#define OTA_MAX_RECV_STALLS    3
+
 // Firmware OTA: the raw firmware.bin is streamed in the POST body, written to
 // the inactive OTA slot, and the device reboots into it. Runs on the httpd
 // worker task (8 KB stack, set below) — the 50 ms display loop is untouched. A
-// failed/aborted upload leaves the running slot bootable (set_boot only on
-// success). No auth here: same trust model as the rest of this LAN-only UI.
+// failed/aborted or stalled upload leaves the running slot bootable (set_boot
+// only on success) and un-blanks the display. No auth here: same trust model
+// as the rest of this LAN-only UI.
 static esp_err_t ota_post(httpd_req_t *req)
 {
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
@@ -384,9 +390,23 @@ static esp_err_t ota_post(httpd_req_t *req)
 
     char buf[2048];
     int remaining = req->content_len;
+    int stalls = 0;   // consecutive recv timeouts; bounded so a half-open
+                      // upload can't spin here forever holding the display blank
     while (remaining > 0) {
         int r = httpd_req_recv(req, buf, remaining < (int)sizeof(buf) ? remaining : (int)sizeof(buf));
-        if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (r == HTTPD_SOCK_ERR_TIMEOUT) {
+            // Each timeout is recv_wait_timeout seconds (set in webui_start).
+            // Give up after a handful so a dropped Wi-Fi upload aborts cleanly
+            // and the device stays on the current firmware instead of hanging.
+            if (++stalls > OTA_MAX_RECV_STALLS) {
+                esp_ota_abort(ota);
+                nixie_hold_off(false);
+                httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "upload stalled");
+                return ESP_OK;
+            }
+            continue;
+        }
+        stalls = 0;
         if (r <= 0) {
             esp_ota_abort(ota);
             nixie_hold_off(false);
@@ -447,6 +467,9 @@ void webui_start(void)
     // The state handler builds a ~1.7 KB JSON buffer plus the DS-sensor list on
     // the stack; the default 4 KB httpd task stack overflows. Give it room.
     cfg.stack_size = 8192;
+    // Bound each blocking socket recv so a dropped OTA upload times out (and the
+    // handler can abort) instead of the worker task blocking indefinitely.
+    cfg.recv_wait_timeout = OTA_RECV_TIMEOUT_S;
 
     httpd_handle_t srv = NULL;
     if (httpd_start(&srv, &cfg) != ESP_OK) {
