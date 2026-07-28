@@ -65,7 +65,18 @@ dead-time**, that's the ghosting fix), `i2cbus` (shared I²C + scanner), `rtcdev
 (PCF8563/DS1307/DS3231 auto-detect), `netclock` (WiFi+SNTP), `netcfg`
 (credential store), `provision` (SoftAP portal), `settings`, `control`,
 `mqttctrl`, `webui`, `temps` (slots + DS18B20 via RMT 1-Wire), `buttons`,
-`alarm`, `buzzer`, `antipoison`.
+`alarm`, `buzzer`, `antipoison`, `weblog` (esp_log→RAM ring buffer, read back
+over `GET /api/log` + a Logs panel — the assembled clock has no serial, so this
+is how you read its logs; `weblog_init()` runs first in `app_main`).
+
+**OTA is web-upload only** (`POST /api/ota` in `webui.c`) — the assembled clock's
+UART is physically disconnected. Two gotchas baked into the handler, don't
+regress them: (1) it calls `nixie_hold_off(true)` for the whole flash so the
+multiplexed tubes stay dark instead of glitching while `esp_ota_write` stalls
+the CPU — cleared only on failure; (2) the recv loop **bounds** consecutive
+socket timeouts (`OTA_MAX_RECV_STALLS` × `recv_wait_timeout`) and aborts, or a
+dropped upload spins the single httpd worker forever with the display latched
+blank and the device needs a power cycle (learned the hard way).
 
 The `alarm` component exposes more than ring state: `alarm_status_str(c, lt, out, n)`
 builds a human string (`disabled` / `ringing` / `snoozed 6m` / `off 23h59m` /
