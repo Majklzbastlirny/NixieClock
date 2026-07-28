@@ -66,8 +66,11 @@ dead-time**, that's the ghosting fix), `i2cbus` (shared I²C + scanner), `rtcdev
 (credential store), `provision` (SoftAP portal), `settings`, `control`,
 `mqttctrl`, `webui`, `temps` (slots + DS18B20 via RMT 1-Wire), `blescan`
 (NimBLE passive scan → Shelly BLU H&T over BTHome v2; feeds a temp slot via
-`temps_set_shelly` when a slot's source is `TEMP_SRC_SHELLY` and its
-`shelly_mac` matches — unencrypted BTHome only), `buttons`,
+`temps_set_shelly`/`temps_set_shelly_battery` when a slot's source is
+`TEMP_SRC_SHELLY` and its `shelly_mac` matches — unencrypted BTHome only. Also
+decodes the button event 0x3A → the web picker highlights the pressed sensor
+["identify"], and battery ≤20% blinks the temp colon via `temps_battery`),
+`buttons`,
 `alarm`, `buzzer`, `antipoison`, `weblog` (esp_log→RAM ring buffer, read back
 over `GET /api/log` + a Logs panel — the assembled clock has no serial, so this
 is how you read its logs; `weblog_init()` runs first in `app_main`).
@@ -121,7 +124,10 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   before firing, so a stray/retained MQTT message can't trigger them.
 - **Tubes have NO decimal points** — the colon is the only separator (between
   MM:SS = tubes 3|4) and doubles as the decimal point in temperature mode. No
-  minus glyph either: negatives are shown by blinking the whole reading.
+  minus glyph either: negatives are shown by blinking the whole reading. Low
+  Shelly battery blinks *just the colon* during that temp reading (`show_temp`'s
+  `batt_low` arg) — a deliberately different cue from the negative whole-reading
+  blink; don't merge the two.
 - **Alarm colon cue (don't regress):** the colon also signals alarm state, keyed
   off `cfg.alarm_enabled`, **NOT** `alarm_is_armed()`. Tying it to armed (which
   goes false after a dismiss-for-today) made the "off for 23h59m" window revert

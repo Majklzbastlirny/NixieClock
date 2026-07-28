@@ -125,7 +125,8 @@ everywhere instantly:
   (`nixie-<mac>`). Topics under `nixieclock/<node>/…`, HA discovery under
   `homeassistant/…`.
 - **REST/JSON** — `GET /api/state`, `POST /api/set?k=<key>` (value in body),
-  `POST /api/action?a=<action>`, `GET /api/net`, `POST /api/netset`.
+  `POST /api/action?a=<action>`, `GET /api/net`, `POST /api/netset`,
+  `POST /api/ota` (firmware upload), `GET /api/log`, `GET /api/blescan`.
 
 ## Features
 
@@ -136,11 +137,16 @@ everywhere instantly:
 - Anti-cathode-poisoning cycle (periodic + on-demand).
 - Two temperature slots shown near the end of each minute (sec 52–55), each fed
   by MQTT, a DS18B20, or a **Shelly BLU H&T** read directly over BLE (passive
-  BTHome v2 scan — no hub/gateway/cloud, picked from a live list in the web UI);
-  configurable decimals; negatives shown by blinking (no minus glyph), colon
-  used as the decimal point.
+  BTHome v2 scan — no hub/gateway/cloud, picked from a live list in the web UI;
+  press the sensor's button to highlight it in the list, and its battery level
+  shows with a low-battery cue — a colon blink on the tubes); configurable
+  decimals; negatives shown by blinking (no minus glyph), colon as decimal point.
 - Alarm with snooze + dismiss, day-of-week mask, and RTTTL melodies.
 - Cold-start "slot machine" animation until the time is known.
+- **Over-the-air updates** — upload a new `firmware.bin` from the web UI (dual-OTA
+  slots); no serial needed after the first flash.
+- **Web log viewer** — recent device log over `GET /api/log`, since the assembled
+  clock has no serial access.
 
 ## Project layout
 
