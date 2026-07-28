@@ -21,7 +21,9 @@
 #include <stddef.h>
 
 #define SETTINGS_MAGIC   0x4E58u   // 'NX'
-#define SETTINGS_VERSION 5
+#define SETTINGS_VERSION 6
+
+#define TZ_STRLEN 40               // POSIX TZ string buffer (e.g. CET-1CEST,...)
 
 #define TEMP_SLOTS 2
 
@@ -80,6 +82,17 @@ typedef struct {
     uint8_t  temp_rom[TEMP_SLOTS][8];      // DS18B20 ROM code (src == DS18B20)
     uint8_t  shelly_mac[TEMP_SLOTS][6];    // Shelly BLU BLE MAC (src == SHELLY)
     int16_t  temp_offset[TEMP_SLOTS];      // per-slot calibration, centi-degrees C
+
+    // Interlude scheduling: each shows during [start, start+len) seconds of the
+    // minute (mod 60). Precedence temp0 -> temp1 -> date if windows overlap.
+    uint8_t  temp_sec[TEMP_SLOTS];         // per-slot start second (0..59)
+    uint8_t  temp_len[TEMP_SLOTS];         // per-slot length in seconds (1..8)
+    bool     date_enabled;                 // show the date interlude
+    uint8_t  date_sec;                     // date start second
+    uint8_t  date_len;                     // date length in seconds
+
+    // --- Timezone ----------------------------------------------------------
+    char     tz[TZ_STRLEN];                // POSIX TZ string (DST-aware)
 } clock_settings_t;
 
 // Load from NVS (or defaults if absent/corrupt) and prepare the lock. Also
@@ -96,6 +109,13 @@ int settings_set(const clock_settings_t *in);
 // Monotonic counter, incremented on every successful settings_set(). Pollers
 // keep the last value they saw and re-apply derived state when it changes.
 uint32_t settings_version(void);
+
+// Persist / recall the last-known wall-clock epoch (Unix seconds) to NVS, under
+// a key SEPARATE from the versioned settings blob so it survives schema bumps.
+// Used to reseed the clock (approximately) when the RTC has lost power, instead
+// of booting to 1970. settings_load_epoch returns false if nothing is stored.
+void settings_persist_epoch(int64_t sec);
+bool settings_load_epoch(int64_t *sec);
 
 // --- Pure display-policy helpers (operate on a snapshot, no locking) --------
 // True if minute-of-day `mins` (0..1439) falls in the fixed night window.

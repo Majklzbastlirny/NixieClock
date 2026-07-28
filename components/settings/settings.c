@@ -55,7 +55,15 @@ static void load_defaults(clock_settings_t *c)
     c->temp_decimals = 2;
     c->temp_src[0]   = TEMP_SRC_NONE;
     c->temp_src[1]   = TEMP_SRC_NONE;
-    // temp_rom[][] left zeroed by the memset above.
+    // temp_rom[][] / shelly_mac[][] / temp_offset[] left zeroed by the memset.
+
+    // Interlude schedule: temp1 @ :53-54, temp2 @ :55-56, date @ :57-58.
+    c->temp_sec[0]   = 53;  c->temp_len[0] = 2;
+    c->temp_sec[1]   = 55;  c->temp_len[1] = 2;
+    c->date_enabled  = true;
+    c->date_sec      = 57;  c->date_len    = 2;
+
+    strncpy(c->tz, "CET-1CEST,M3.5.0,M10.5.0/3", sizeof(c->tz) - 1);
 }
 
 // Initialise NVS for the whole app (idempotent; safe even if WiFi inits later).
@@ -138,6 +146,30 @@ int settings_set(const clock_settings_t *in)
 uint32_t settings_version(void)
 {
     return s_ver;
+}
+
+// --- Wall-clock epoch persistence (separate NVS key, not the blob) ----------
+#define NVS_KEY_EPOCH "epoch"
+
+void settings_persist_epoch(int64_t sec)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_set_i64(h, NVS_KEY_EPOCH, sec) == ESP_OK)
+        nvs_commit(h);
+    nvs_close(h);
+}
+
+bool settings_load_epoch(int64_t *sec)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return false;
+    int64_t v = 0;
+    esp_err_t err = nvs_get_i64(h, NVS_KEY_EPOCH, &v);
+    nvs_close(h);
+    if (err != ESP_OK) return false;
+    if (sec) *sec = v;
+    return true;
 }
 
 bool settings_is_night(const clock_settings_t *s, int mins)

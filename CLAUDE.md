@@ -146,7 +146,18 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   to the alarm-off pattern until reboot — that was the bug. Patterns (in the
   `src/main.c` draw loop): disabled = normal blink per `blink_colon`; enabled =
   one short pip/sec; snoozed (`alarm_is_snoozed()`) = double pip; ringing = whole
-  display flashes.
+  display flashes. The pip/blink phase keys off the **wall-clock sub-second**
+  (`gettimeofday`'s `tv_usec`, var `subms`), NOT boot-relative `now_ms` — so the
+  colon turns on exactly on the second edge. Don't revert to `now_ms % 1000`.
+- **Colon blinks during OTA** (`PIN_COLON` is a dedicated GPIO, not multiplexed).
+  While `s_hold_off` (OTA), the nixie ISR itself drives `PIN_COLON` from a frame
+  counter (~6 Hz) — because the httpd worker is stalled in `esp_ota_write` and
+  can't. `nixie_hold_off(true)` therefore leaves the colon to the ISR (don't make
+  it force `PIN_COLON=0` again); `nixie_set_colon` still early-returns while held.
+- **Interlude schedule is configurable** (`interlude_for_second` in `main.c`):
+  temp1/temp2/date each own a `[sec, sec+len)` window (mod 60), precedence
+  temp0 > temp1 > date. `show_date` renders `DOW _ DD:MM` (ISO weekday, blank,
+  day:month with the colon as the `.`). Windows shouldn't overlap.
 - **Buttons sit on tube slots 1..5** (slot 0 has no button): 1=bright+, 2=bright−,
   3=show-temp, 4=anti-poison, 5=provision (short=show IP, ~3s=provision,
   ~10s=factory reset). Snooze is a dedicated GPIO.
@@ -155,7 +166,18 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   separate NVS namespace, so they survive). (v2→v3 added `shelly_mac`; v3→v4
   added `temp_offset` — a per-slot calibration applied in `temps_get` on
   read-out, so it shifts display + MQTT/REST alike but leaves the raw DS picker
-  list untouched; v4→v5 added `night_mode`/`lat_e2`/`lon_e2` for sun/lux dimming.)
+  list untouched; v4→v5 added `night_mode`/`lat_e2`/`lon_e2` for sun/lux dimming;
+  v5→v6 added `temp_sec`/`temp_len`/`date_*` (configurable interlude schedule) +
+  `tz` (POSIX timezone).)
+- **Wall-clock epoch is persisted OUTSIDE the settings blob** (`settings_persist_epoch`
+  /`settings_load_epoch`, NVS key `"epoch"` in the `"clock"` namespace) so a
+  schema bump never wipes it. `main.c` writes it every ~3h (and on every time-set
+  /SNTP sync); at boot, if the RTC is dead/invalid it reseeds from this so the
+  clock shows an approximate time instead of 1970.
+- **TZ is owned by `main.c`, not `netclock`** (was hardcoded in both). Boot applies
+  `setenv("TZ", cfg.tz)` before the RTC seed and re-applies on a settings change;
+  `netclock_start` must NOT `setenv` TZ (that clobbered a custom zone). Set it via
+  the `tz` control key (web/MQTT) or `/api/settime?...&tz=`.
 - **`settings.h` is included almost everywhere — keep it lean.** Don't add
   `<time.h>` (or other system headers) to it: doing so pulled `sys/types.h`'s
   `dev_t` into `blescan.c` and collided with its local `dev_t` typedef. That's
@@ -233,6 +255,11 @@ sunrise-sunset (offline solar calc) / BH1750 ambient lux (the `bh1750` component
 UI offers `lux` only when the sensor is detected). *Sun mode built but not yet
 hardware-verified in the field; BH1750 flow untested without a physical sensor.*
 
-Remaining ideas are optional and user-driven: REST GET aliases, encrypted-BTHome
-(AES-CCM) support for Shelly BLU, a twilight offset for sun mode (dim N min after
-sunset). Confirm scope with the user before building.
+Also done (this batch): REST GET aliases (`/api/set`,`/api/action`), configurable
+interlude schedule + a **date** interlude, OTA colon blink, colon second-alignment,
+settable POSIX `tz`, **set-clock-from-phone** (`/api/settime` on both the web UI and
+the SoftAP portal), and time persistence to NVS.
+
+Remaining ideas are optional and user-driven: encrypted-BTHome (AES-CCM) support
+for Shelly BLU, a twilight offset for sun mode (dim N min after sunset). Confirm
+scope with the user before building.

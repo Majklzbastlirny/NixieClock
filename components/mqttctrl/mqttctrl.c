@@ -203,7 +203,7 @@ static void publish_state(void)
     if (p0 < 0) snprintf(bt0, sizeof(bt0), "unknown"); else snprintf(bt0, sizeof(bt0), "%d", p0);
     if (p1 < 0) snprintf(bt1, sizeof(bt1), "unknown"); else snprintf(bt1, sizeof(bt1), "%d", p1);
 
-    char buf[1850];
+    char buf[2048];
     int n = snprintf(buf, sizeof(buf),
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_mode\":\"%s\","
         "\"latitude\":\"%s\",\"longitude\":\"%s\",\"bh1750\":\"%s\",\"lux\":%d,"
@@ -218,6 +218,8 @@ static void publish_state(void)
         "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds_roms\":\"%s\",\"ds\":{%s},"
         "\"temp1_mac\":\"%s\",\"temp2_mac\":\"%s\","
         "\"temp1_offset\":%s,\"temp2_offset\":%s,"
+        "\"temp1_sec\":%u,\"temp1_len\":%u,\"temp2_sec\":%u,\"temp2_len\":%u,"
+        "\"date_enabled\":\"%s\",\"date_sec\":%u,\"date_len\":%u,\"tz\":\"%s\","
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
         "\"temp1_batt\":\"%s\",\"temp2_batt\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"rtc\":\"%s\","
@@ -231,7 +233,10 @@ static void publish_state(void)
         c.alarm_snooze_min, onoff(alarm_is_ringing()), alstat,
         onoff(c.temp_enabled),
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
-        in0, in1, rom0, rom1, roms, dsobj, mac0, mac1, off0, off1, t0, t1, bt0, bt1,
+        in0, in1, rom0, rom1, roms, dsobj, mac0, mac1, off0, off1,
+        c.temp_sec[0], c.temp_len[0], c.temp_sec[1], c.temp_len[1],
+        onoff(c.date_enabled), c.date_sec, c.date_len, c.tz,
+        t0, t1, bt0, bt1,
         onoff(settings_is_night_now(&c, now, mins)), onoff(netclock_synced()),
         onoff(rtc_present()), ip, rssi);
     if (n > 0)
@@ -388,6 +393,20 @@ static void publish_discovery(void)
             ",\"cmd_t\":\"%s/temp%d_source\",\"options\":[\"none\",\"mqtt\",\"ds18b20\",\"shelly\"]", s_cmd, n);
         disc("select", suf, nm, suf, ex);
 
+        // Interlude schedule for this slot: which second it shows + how long.
+        snprintf(suf, sizeof(suf), "temp%d_sec", n);
+        snprintf(nm, sizeof(nm), "Temp slot %d second", n);
+        snprintf(ex, sizeof(ex),
+            ",\"cmd_t\":\"%s/temp%d_sec\",\"min\":0,\"max\":59,\"step\":1,"
+            "\"entity_category\":\"config\"", s_cmd, n);
+        disc("number", suf, nm, suf, ex);
+        snprintf(suf, sizeof(suf), "temp%d_len", n);
+        snprintf(nm, sizeof(nm), "Temp slot %d length", n);
+        snprintf(ex, sizeof(ex),
+            ",\"cmd_t\":\"%s/temp%d_len\",\"min\":1,\"max\":8,\"step\":1,\"unit_of_meas\":\"s\","
+            "\"entity_category\":\"config\"", s_cmd, n);
+        disc("number", suf, nm, suf, ex);
+
         snprintf(suf, sizeof(suf), "temp%d_in", n);
         snprintf(nm, sizeof(nm), "Temp slot %d input", n);
         snprintf(ex, sizeof(ex),
@@ -434,6 +453,23 @@ static void publish_discovery(void)
             ",\"unit_of_meas\":\"%%\",\"dev_cla\":\"battery\",\"entity_category\":\"diagnostic\"");
         disc("sensor", suf, nm, suf, ex);
     }
+
+    // Date interlude: enable + which second + how long.
+    snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/date_enabled\"", s_cmd);
+    disc("switch", "date_enabled", "Date display", "date_enabled", ex);
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/date_sec\",\"min\":0,\"max\":59,\"step\":1,"
+        "\"entity_category\":\"config\"", s_cmd);
+    disc("number", "date_sec", "Date second", "date_sec", ex);
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/date_len\",\"min\":1,\"max\":8,\"step\":1,\"unit_of_meas\":\"s\","
+        "\"entity_category\":\"config\"", s_cmd);
+    disc("number", "date_len", "Date length", "date_len", ex);
+
+    // Timezone (POSIX string). Command routes through control_apply_kv.
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/tz\",\"entity_category\":\"config\"", s_cmd);
+    disc("text", "tz", "Timezone (POSIX)", "tz", ex);
 
     // Discovered DS18B20 ROM addresses on the bus (read-only, comma-separated).
     disc("sensor", "ds_roms", "DS18B20 sensors", "ds_roms", "");

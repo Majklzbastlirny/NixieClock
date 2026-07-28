@@ -126,27 +126,35 @@ everywhere instantly:
 - **MQTT + Home Assistant** — auto-discovers as a *Nixie Clock* device
   (`nixie-<mac>`). Topics under `nixieclock/<node>/…`, HA discovery under
   `homeassistant/…`.
-- **REST/JSON** — `GET /api/state`, `POST /api/set?k=<key>` (value in body),
-  `POST /api/action?a=<action>`, `GET /api/net`, `POST /api/netset`,
-  `POST /api/ota` (firmware upload), `GET /api/log`, `GET /api/blescan`.
+- **REST/JSON** — `GET /api/state`, `POST /api/set?k=<key>` (value in body) or
+  the `GET /api/set?k=…&v=…` alias, `POST|GET /api/action?a=<action>`,
+  `GET|POST /api/settime?epoch=…&tz=…` (set the clock from a client),
+  `GET /api/net`, `POST /api/netset`, `POST /api/ota` (firmware upload),
+  `GET /api/log`, `GET /api/blescan`.
 
 ## Features
 
 - Smooth multiplex PWM brightness, ghost-free (cathode-before-anode + dead-time).
-- SNTP timekeeping (Europe/Prague), seeded from and written back to the RTC.
+- SNTP timekeeping (configurable POSIX timezone), seeded from and written back to
+  the RTC. Off-grid you can **set the clock from a phone/PC** — the web page and
+  the SoftAP setup portal both send the device's time (and timezone), no NTP
+  needed. The time is also saved to flash every few hours, so a power-lost RTC
+  boots to an approximate time instead of 1970.
 - Manual brightness + night dimming with three selectable modes: a **fixed**
   clock-time window (default 20:30→06:00), **sunrise/sunset** computed on-device
   from a configurable lat/lon (fully offline — no network needed), or **ambient
   light** from an optional BH1750 sensor (auto-detected at boot on I²C 0x23/0x5C;
   the light-driven mode is offered only when the sensor is present).
 - Anti-cathode-poisoning cycle (periodic + on-demand).
-- Two temperature slots shown near the end of each minute (sec 52–55), each fed
-  by MQTT, a DS18B20, or a **Shelly BLU H&T** read directly over BLE (passive
-  BTHome v2 scan — no hub/gateway/cloud, picked from a live list in the web UI;
-  press the sensor's button to highlight it in the list, and its battery level
-  shows with a low-battery cue — a colon blink on the tubes); a per-slot
-  calibration offset (°C); configurable decimals; negatives shown by blinking
-  (no minus glyph), colon as decimal point.
+- Two temperature slots + a **date** shown as brief interludes near the end of
+  each minute — each interlude's **start second and duration are configurable**
+  (defaults temp1 :53, temp2 :55, date :57). Temps are fed by MQTT, a DS18B20, or
+  a **Shelly BLU H&T** read directly over BLE (passive BTHome v2 scan — no
+  hub/gateway/cloud, picked from a live list in the web UI; press the sensor's
+  button to highlight it, and its battery level shows with a low-battery cue — a
+  colon blink); a per-slot calibration offset (°C); configurable decimals;
+  negatives shown by blinking (no minus glyph), colon as decimal point. The date
+  reads `DOW _ DD:MM` (weekday, day and month).
 - Alarm with snooze + dismiss, day-of-week mask, and RTTTL melodies.
 - Cold-start "slot machine" animation until the time is known.
 - **Over-the-air updates** — upload a new `firmware.bin` from the web UI (dual-OTA

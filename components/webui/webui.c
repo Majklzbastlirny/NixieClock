@@ -8,9 +8,13 @@
 #include "nixie.h"
 #include "weblog.h"
 #include "blescan.h"
+#include "settings.h"
+#include "rtc_clock.h"
 
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -106,6 +110,18 @@ static const char PAGE[] =
 "<div id='shellylist' class='s'>scanning...</div>"
 "</fieldset>"
 
+"<h2>Interludes</h2><fieldset>"
+"<label><span class='m'>Which second of each minute each readout shows, and for "
+"how long (seconds). Keep the windows from overlapping.</span></label>"
+"<label>Temp 1 at second <span><input type='number' min='0' max='59' id='temp1_sec' onchange='set(this)'>"
+" for <input type='number' min='1' max='8' id='temp1_len' onchange='set(this)'></span></label>"
+"<label>Temp 2 at second <span><input type='number' min='0' max='59' id='temp2_sec' onchange='set(this)'>"
+" for <input type='number' min='1' max='8' id='temp2_len' onchange='set(this)'></span></label>"
+"<label>Show date <input type='checkbox' id='date_enabled' onchange='setck(this)'></label>"
+"<label>Date at second <span><input type='number' min='0' max='59' id='date_sec' onchange='set(this)'>"
+" for <input type='number' min='1' max='8' id='date_len' onchange='set(this)'></span></label>"
+"</fieldset>"
+
 "<h2>Network</h2><fieldset>"
 "<label>WiFi SSID <input id='n_ssid'></label>"
 "<label>WiFi password <input id='n_pass' type='password' placeholder='(unchanged)'></label>"
@@ -117,6 +133,16 @@ static const char PAGE[] =
 "<span><button onclick='savenet()'>Save</button> "
 "<button onclick=\"act('mqtt_test')\">Test MQTT</button></span></label>"
 "<label>MQTT status <span id='mqtt' class='s'></span></label>"
+"</fieldset>"
+
+"<h2>Clock &amp; time</h2><fieldset>"
+"<label>Timezone (POSIX) <span><input id='tz' size='20' onchange='set(this)'>"
+"<button onclick='useoff()' title='fill from this device (no DST)'>&#8592; phone</button></span></label>"
+"<label><span class='m'>Set the clock from this phone/PC — handy off-grid when "
+"the RTC has reset. Sends this device's time; the TZ above is applied too.</span></label>"
+"<label>This device <span id='phtime' class='s'>--:--:--</span></label>"
+"<label><span id='phzone' class='m'></span>"
+"<button onclick='settime()'>Set clock from this device</button></label>"
 "</fieldset>"
 
 "<h2>Firmware</h2><fieldset>"
@@ -148,6 +174,20 @@ static const char PAGE[] =
 "function setck(e){post('/api/set?k='+e.id,e.checked?'ON':'OFF')}"
 "function act(a){post('/api/action?a='+a)}"
 "function inp(n){post('/api/action?a=temp'+n+'_input',document.getElementById('temp'+n+'_in').value)}"
+// POSIX fixed-offset (no DST) for this device, e.g. UTC+2 -> "<+0200>-2".
+"function poff(){var o=-new Date().getTimezoneOffset(),s=o<0?'-':'+',a=Math.abs(o),"
+"hh=Math.floor(a/60),mm=a%60,p2=function(n){return(n<10?'0':'')+n};"
+"return'<'+s+p2(hh)+p2(mm)+'>'+(o<0?'':'-')+hh+(mm?(':'+p2(mm)):'');}"
+"function useoff(){var e=document.getElementById('tz');e.value=poff();set(e);}"
+"function settime(){var ep=Math.floor(Date.now()/1000),tz=document.getElementById('tz').value;"
+"post('/api/settime?epoch='+ep+'&tz='+encodeURIComponent(tz));}"
+"function phclock(){var d=new Date();"
+"var e=document.getElementById('phtime');if(!e)return;"
+"e.textContent=d.toLocaleTimeString();"
+"var o=-d.getTimezoneOffset(),s=o<0?'-':'+',a=Math.abs(o),p2=function(n){return(n<10?'0':'')+n};"
+"try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch(x){z='';}"
+"document.getElementById('phzone').textContent=z+' (UTC'+s+p2(Math.floor(a/60))+':'+p2(a%60)+')';}"
+"setInterval(phclock,1000);phclock();"
 "function render(s){S=s;"
 "document.getElementById('status').textContent="
 "s.time+'  |  '+(s.synced=='ON'?'synced':'no sync')+'  |  '+s.ip+'  |  '+s.rssi+'dBm'+(s.night_active=='ON'?'  |  night':'');"
@@ -265,7 +305,7 @@ static int read_body(httpd_req_t *req, char *buf, int max)
 // Pull one query param by name into out; returns true if present.
 static bool query_param(httpd_req_t *req, const char *name, char *out, int max)
 {
-    char q[96];
+    char q[192];   // roomy: /api/settime carries a URL-encoded POSIX TZ
     if (httpd_req_get_url_query_str(req, q, sizeof(q)) != ESP_OK) return false;
     return httpd_query_key_value(q, name, out, max) == ESP_OK;
 }
@@ -283,10 +323,49 @@ static esp_err_t set_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// GET alias: /api/set?k=<key>&v=<value>. Same effect as the POST form but the
+// value rides in the query, so it's callable from a browser bar / curl / HA
+// shell_command without a body.
+static esp_err_t set_get(httpd_req_t *req)
+{
+    char key[24], val[64];
+    if (!query_param(req, "k", key, sizeof(key))) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing k");
+        return ESP_OK;
+    }
+    if (!query_param(req, "v", val, sizeof(val))) val[0] = '\0';
+    control_apply_kv(key, val, (int)strlen(val));
+    send_state(req);
+    return ESP_OK;
+}
+
 static int parse_centi(const char *s)
 {
     double f = atof(s);
     return (int)(f * 100.0 + (f < 0 ? -0.5 : 0.5));
+}
+
+// Dispatch an action with its value (POST body or GET ?v=). Returns false only
+// for factory_reset without the token (so the caller can 400). Used by both the
+// POST and GET action handlers.
+static bool do_action(const char *a, const char *val, int vlen)
+{
+    if (!strcmp(a, "factory_reset")) {
+        // Require the token from the confirmed UI press before wiping NVS.
+        if (vlen == 5 && !strncmp(val, "RESET", 5))
+            netcfg_factory_reset();   // erases NVS + reboots (does not return)
+        return false;                 // no/!token -> caller reports the error
+    }
+
+    if (!strcmp(a, "antipoison_now"))   antipoison_trigger();
+    else if (!strcmp(a, "alarm_snooze")) alarm_snooze();
+    else if (!strcmp(a, "alarm_dismiss")) alarm_dismiss();
+    else if (!strcmp(a, "alarm_test"))   alarm_preview_melody();
+    else if (!strcmp(a, "mqtt_test"))    mqttctrl_reconnect();
+    else if (!strcmp(a, "temp1_input") && vlen) temps_set_mqtt(0, parse_centi(val));
+    else if (!strcmp(a, "temp2_input") && vlen) temps_set_mqtt(1, parse_centi(val));
+    else ESP_LOGW(TAG, "unknown action %s", a);
+    return true;
 }
 
 static esp_err_t action_post(httpd_req_t *req)
@@ -297,25 +376,67 @@ static esp_err_t action_post(httpd_req_t *req)
         return ESP_OK;
     }
     int blen = read_body(req, body, sizeof(body));
-
-    if (!strcmp(a, "factory_reset")) {
-        // Require the token from the confirmed UI press before wiping NVS.
-        if (blen == 5 && !strncmp(body, "RESET", 5)) {
-            httpd_resp_sendstr(req, "Resetting...");
-            netcfg_factory_reset();   // erases NVS + reboots (does not return)
-        }
+    if (!do_action(a, body, blen)) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "factory_reset needs token");
         return ESP_OK;
     }
+    send_state(req);
+    return ESP_OK;
+}
 
-    if (!strcmp(a, "antipoison_now"))   antipoison_trigger();
-    else if (!strcmp(a, "alarm_snooze")) alarm_snooze();
-    else if (!strcmp(a, "alarm_dismiss")) alarm_dismiss();
-    else if (!strcmp(a, "alarm_test"))   alarm_preview_melody();
-    else if (!strcmp(a, "mqtt_test"))    mqttctrl_reconnect();
-    else if (!strcmp(a, "temp1_input") && blen) temps_set_mqtt(0, parse_centi(body));
-    else if (!strcmp(a, "temp2_input") && blen) temps_set_mqtt(1, parse_centi(body));
-    else ESP_LOGW(TAG, "unknown action %s", a);
+// GET alias: /api/action?a=<action>&v=<value>.
+static esp_err_t action_get(httpd_req_t *req)
+{
+    char a[24], val[32];
+    if (!query_param(req, "a", a, sizeof(a))) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing a");
+        return ESP_OK;
+    }
+    if (!query_param(req, "v", val, sizeof(val))) val[0] = '\0';
+    if (!do_action(a, val, (int)strlen(val))) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "factory_reset needs token");
+        return ESP_OK;
+    }
+    send_state(req);
+    return ESP_OK;
+}
+
+// Set the clock from a client (phone/PC): /api/settime?epoch=<unix_utc>[&tz=<POSIX>].
+// Optionally sets the POSIX TZ first, then the system clock, the RTC, and the
+// persisted epoch. Works over GET or POST so the little JS on the page is simple.
+static esp_err_t settime_req(httpd_req_t *req)
+{
+    char es[24], tz[TZ_STRLEN];
+    if (!query_param(req, "epoch", es, sizeof(es))) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing epoch");
+        return ESP_OK;
+    }
+    long long epoch = atoll(es);
+    if (epoch < 1700000000LL) {   // sanity: after 2023-11
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad epoch");
+        return ESP_OK;
+    }
+
+    if (query_param(req, "tz", tz, sizeof(tz)) && tz[0]) {
+        control_apply_kv("tz", tz, (int)strlen(tz));   // persist
+        setenv("TZ", tz, 1);                           // apply now for the RTC write
+        tzset();
+    }
+
+    struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
+    settimeofday(&tv, NULL);
+
+    time_t now = tv.tv_sec;
+    struct tm lt;
+    localtime_r(&now, &lt);
+    rtc_time_t r = {
+        .year = lt.tm_year + 1900, .month = lt.tm_mon + 1, .day = lt.tm_mday,
+        .hour = lt.tm_hour, .minute = lt.tm_min, .second = lt.tm_sec,
+        .weekday = lt.tm_wday + 1,
+    };
+    if (rtc_present()) rtc_set(&r);
+    settings_persist_epoch((int64_t)epoch);
+    ESP_LOGI(TAG, "clock set from client: epoch %lld", epoch);
 
     send_state(req);
     return ESP_OK;
@@ -513,7 +634,7 @@ void webui_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;
-    cfg.max_uri_handlers = 10;
+    cfg.max_uri_handlers = 16;
     // The state handler builds a ~1.7 KB JSON buffer plus the DS-sensor list on
     // the stack; the default 4 KB httpd task stack overflows. Give it room.
     cfg.stack_size = 8192;
@@ -531,7 +652,11 @@ void webui_start(void)
         { .uri = "/",           .method = HTTP_GET,  .handler = root_get },
         { .uri = "/api/state",  .method = HTTP_GET,  .handler = state_get },
         { .uri = "/api/set",    .method = HTTP_POST, .handler = set_post },
+        { .uri = "/api/set",    .method = HTTP_GET,  .handler = set_get },
         { .uri = "/api/action", .method = HTTP_POST, .handler = action_post },
+        { .uri = "/api/action", .method = HTTP_GET,  .handler = action_get },
+        { .uri = "/api/settime",.method = HTTP_POST, .handler = settime_req },
+        { .uri = "/api/settime",.method = HTTP_GET,  .handler = settime_req },
         { .uri = "/api/net",    .method = HTTP_GET,  .handler = net_get },
         { .uri = "/api/netset", .method = HTTP_POST, .handler = netset_post },
         { .uri = "/api/ota",    .method = HTTP_POST, .handler = ota_post },

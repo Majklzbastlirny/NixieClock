@@ -1,6 +1,7 @@
 #include "netclock.h"
 #include "rtc_clock.h"
 #include "netcfg.h"
+#include "settings.h"
 
 #include <string.h>
 #include <time.h>
@@ -14,8 +15,6 @@
 #include "esp_netif_sntp.h"
 #include "esp_log.h"
 
-// Europe/Prague: CET (UTC+1) / CEST (UTC+2), DST last Sun Mar -> last Sun Oct.
-#define TZ_PRAGUE "CET-1CEST,M3.5.0,M10.5.0/3"
 #define NTP_SERVER "pool.ntp.org"
 
 static const char *TAG = "netclock";
@@ -45,6 +44,8 @@ static void on_time_sync(struct timeval *tv)
         ESP_LOGI(TAG, "SNTP sync -> RTC updated");
     else
         ESP_LOGW(TAG, "SNTP sync but RTC write failed");
+
+    settings_persist_epoch((int64_t)now);   // keep the NVS fallback fresh too
 }
 
 static void start_sntp_once(void)
@@ -76,9 +77,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
 
 void netclock_start(void)
 {
-    // Timezone first so localtime_r() is correct as soon as time is set.
-    setenv("TZ", TZ_PRAGUE, 1);
-    tzset();
+    // TZ is owned by main (from settings) and already applied before we get
+    // here, so we must NOT re-force it — that would clobber a custom timezone.
 
     // NVS is initialised once by settings_init() before we get here.
     ESP_ERROR_CHECK(esp_netif_init());

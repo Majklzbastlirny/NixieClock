@@ -156,7 +156,10 @@ Served by the clock itself at `http://<clock-ip>/`.
 |---------------|---------|
 | `GET /api/state` | Full device state as JSON |
 | `POST /api/set?k=<key>` | Set a setting; value in the request body |
+| `GET /api/set?k=<key>&v=<value>` | Same, value in the query (no body needed) |
 | `POST /api/action?a=<action>` | Trigger an action; payload in body where noted |
+| `GET /api/action?a=<action>&v=<value>` | Same, value in the query |
+| `GET \| POST /api/settime?epoch=<unix>&tz=<POSIX>` | Set the clock (and optional TZ) from a client — no network/NTP needed |
 | `GET /api/net` | Current network config |
 | `POST /api/netset` | Update WiFi/MQTT credentials |
 | `POST /api/ota` | Firmware update: raw `firmware.bin` in the body |
@@ -192,6 +195,11 @@ temp1_mac             AA:BB:CC:DD:EE:FF  (empty clears; used when source=shelly)
 temp2_mac             AA:BB:CC:DD:EE:FF
 temp1_offset          calibration in °C, e.g. 0.5 / -1.2 (empty/0 = none), any source
 temp2_offset          calibration in °C
+temp1_sec / temp1_len  interlude: which second (0..59) temp1 shows + length (1..8 s)
+temp2_sec / temp2_len  interlude for temp2  (default 55/2)
+date_enabled          ON / OFF      (date interlude: DOW _ DD:MM)
+date_sec / date_len   date interlude second + length (default 57/2)
+tz                    POSIX timezone, e.g. CET-1CEST,M3.5.0,M10.5.0/3
 ```
 
 **Actions** (`/api/action?a=…`):
@@ -445,7 +453,10 @@ Hostují samy hodiny na `http://<ip-hodin>/`.
 |----------------|------|
 | `GET /api/state` | Kompletní stav zařízení jako JSON |
 | `POST /api/set?k=<klíč>` | Nastavit hodnotu; hodnota v těle požadavku |
+| `GET /api/set?k=<klíč>&v=<hodnota>` | Totéž, hodnota v URL (bez těla) |
 | `POST /api/action?a=<akce>` | Spustit akci; data v těle kde je uvedeno |
+| `GET /api/action?a=<akce>&v=<hodnota>` | Totéž, hodnota v URL |
+| `GET \| POST /api/settime?epoch=<unix>&tz=<POSIX>` | Nastavit čas (a případně TZ) z klienta — bez sítě/NTP |
 | `GET /api/net` | Aktuální síťová konfigurace |
 | `POST /api/netset` | Změnit WiFi/MQTT údaje |
 | `POST /api/ota` | Aktualizace firmwaru: `firmware.bin` v těle |
@@ -481,6 +492,11 @@ temp1_mac             AA:BB:CC:DD:EE:FF  (prázdný smaže; když source=shelly)
 temp2_mac             AA:BB:CC:DD:EE:FF
 temp1_offset          kalibrace ve °C, např. 0.5 / -1.2 (prázdné/0 = žádná), pro každý zdroj
 temp2_offset          kalibrace ve °C
+temp1_sec / temp1_len  vsuvka: v kterou sekundu (0..59) se temp1 zobrazí + délka (1..8 s)
+temp2_sec / temp2_len  vsuvka pro temp2  (výchozí 55/2)
+date_enabled          ON / OFF      (vsuvka s datem: DOW _ DD:MM)
+date_sec / date_len   sekunda + délka vsuvky s datem (výchozí 57/2)
+tz                    POSIX časová zóna, např. CET-1CEST,M3.5.0,M10.5.0/3
 ```
 
 **Akce** (`/api/action?a=…`):

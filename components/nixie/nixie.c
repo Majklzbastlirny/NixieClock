@@ -79,9 +79,18 @@ static bool IRAM_ATTR on_alarm(gptimer_handle_t timer,
     (void)user_ctx;
     static int  tube = 0;
     static bool dead_phase = false;   // start by lighting tube 0
+    static uint32_t frames = 0;       // ISR-event counter, for the OTA colon blink
 
     uint64_t next = edata->alarm_value;
     int on_us = s_on_us;
+
+    // While blank-held (OTA), the httpd worker is stalled in esp_ota_write and
+    // can't drive the colon — so blink it here in the (IRAM) ISR to show the
+    // flash is progressing. ~6 Hz at the ~750 events/s refresh rate. Only when
+    // held: otherwise nixie_set_colon() owns PIN_COLON.
+    frames++;
+    if (s_hold_off)
+        gpio_set_level(PIN_COLON, (frames & 0x40) ? 1 : 0);
 
     if (!dead_phase) {
         // --- LIT phase for `tube` ---
@@ -269,12 +278,12 @@ void nixie_hold_off(bool on)
 {
     s_hold_off = on;
     if (on) {
-        // Drive everything dark immediately so there's no visible frame before
-        // the ISR next runs (and so the tubes hold "off" if the ISR then stalls
-        // during a flash write). The ISR keeps them blanked while held.
+        // Drive the tubes dark immediately so there's no visible frame before
+        // the ISR next runs (and so they hold "off" if the ISR then stalls
+        // during a flash write). The colon is left to the ISR, which blinks it
+        // while held as a "flashing in progress" cue.
         write_select(SELECT_OFF);
         write_bcd(BCD_BLANK);
         gpio_set_level(PIN_DOT, 0);
-        gpio_set_level(PIN_COLON, 0);
     }
 }

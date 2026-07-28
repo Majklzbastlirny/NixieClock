@@ -2,9 +2,14 @@
 #include "netcfg.h"
 #include "pins.h"
 #include "nixie.h"
+#include "rtc_clock.h"
+#include "i2cbus.h"
+#include "settings.h"
 
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
+#include <sys/time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -134,9 +139,27 @@ static const char FORM_HEAD[] =
 "<label>MQTT user</label><input name='muser'>"
 "<label>MQTT pass</label><input name='mpass' type='password'>"
 "<button type='submit'>Save &amp; reboot</button></form>"
+"<hr><h1>Set the clock</h1>"
+"<p class='m'>Off-grid? Set the clock's time now from this device (also writes "
+"the RTC). Timezone is taken from this device.</p>"
+"<p>This device: <b id='pht'>--:--:--</b> <span id='phz' class='m'></span></p>"
+"<button onclick='st()'>Set clock from this device</button>"
+"<p id='stm' class='m'></p>"
 "<script>fetch('/scan').then(r=>r.json()).then(function(a){"
 "var s=document.getElementById('ssid');a.forEach(function(n){"
-"var o=document.createElement('option');o.textContent=n;o.value=n;s.appendChild(o);});});</script>"
+"var o=document.createElement('option');o.textContent=n;o.value=n;s.appendChild(o);});});"
+"function p2(n){return(n<10?'0':'')+n;}"
+"function poff(){var o=-new Date().getTimezoneOffset(),s=o<0?'-':'+',a=Math.abs(o),"
+"hh=Math.floor(a/60),mm=a%60;return'<'+s+p2(hh)+p2(mm)+'>'+(o<0?'':'-')+hh+(mm?(':'+p2(mm)):'');}"
+"function tick(){var d=new Date();document.getElementById('pht').textContent=d.toLocaleTimeString();"
+"var o=-d.getTimezoneOffset(),s=o<0?'-':'+',a=Math.abs(o);"
+"try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;}catch(e){z='';}"
+"document.getElementById('phz').textContent=z+' (UTC'+s+p2(Math.floor(a/60))+':'+p2(a%60)+')';}"
+"setInterval(tick,1000);tick();"
+"function st(){var b='epoch='+Math.floor(Date.now()/1000)+'&tz='+encodeURIComponent(poff());"
+"fetch('/settime',{method:'POST',body:b}).then(function(r){"
+"document.getElementById('stm').textContent=r.ok?'Clock set.':'Failed.';});}"
+"</script>"
 "</body></html>";
 
 static esp_err_t form_get(httpd_req_t *req)
@@ -239,6 +262,60 @@ static esp_err_t save_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Set the clock from the portal (off-grid time-set). Body is urlencoded
+// epoch=<unix_utc>&tz=<POSIX>. The RTC isn't open in provisioning mode, so we
+// bring the bus + RTC up on demand (both idempotent) and write it, plus the NVS
+// epoch fallback, so the time survives the reboot into normal mode.
+static esp_err_t settime_post(httpd_req_t *req)
+{
+    char body[128];
+    int len = req->content_len;
+    if (len > (int)sizeof(body) - 1) len = sizeof(body) - 1;
+    int got = httpd_req_recv(req, body, len);
+    if (got <= 0) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "no body"); return ESP_OK; }
+    body[got] = '\0';
+
+    char es[24], tz[40];
+    field(body, "epoch", es, sizeof(es));
+    field(body, "tz",    tz, sizeof(tz));
+    long long epoch = atoll(es);
+    if (epoch < 1700000000LL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad epoch");
+        return ESP_OK;
+    }
+
+    if (tz[0]) {
+        clock_settings_t c;
+        settings_get(&c);
+        strncpy(c.tz, tz, sizeof(c.tz) - 1);
+        c.tz[sizeof(c.tz) - 1] = '\0';
+        settings_set(&c);
+        setenv("TZ", tz, 1);
+        tzset();
+    }
+
+    struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
+    settimeofday(&tv, NULL);
+
+    (void)i2cbus_get();
+    if (rtc_open() == ESP_OK) {
+        time_t now = tv.tv_sec;
+        struct tm lt;
+        localtime_r(&now, &lt);
+        rtc_time_t r = {
+            .year = lt.tm_year + 1900, .month = lt.tm_mon + 1, .day = lt.tm_mday,
+            .hour = lt.tm_hour, .minute = lt.tm_min, .second = lt.tm_sec,
+            .weekday = lt.tm_wday + 1,
+        };
+        rtc_set(&r);
+    }
+    settings_persist_epoch((int64_t)epoch);
+    ESP_LOGI(TAG, "portal set clock: epoch %lld", epoch);
+
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
 // The 8-digit AP password, shown on the tubes so only someone looking at the
 // clock can join. Displayed as two 4-digit halves: first half with the colon
 // lit, second half with it dark, ~2s each, looping.
@@ -310,13 +387,15 @@ void provision_run(const char *node_suffix)
     httpd_handle_t srv = NULL;
     ESP_ERROR_CHECK(httpd_start(&srv, &hc));
 
-    httpd_uri_t form  = { .uri = "/",      .method = HTTP_GET,  .handler = form_get };
-    httpd_uri_t scan  = { .uri = "/scan",  .method = HTTP_GET,  .handler = scan_get };
-    httpd_uri_t save  = { .uri = "/save",  .method = HTTP_POST, .handler = save_post };
-    httpd_uri_t other = { .uri = "/*",     .method = HTTP_GET,  .handler = redirect_get };
+    httpd_uri_t form  = { .uri = "/",        .method = HTTP_GET,  .handler = form_get };
+    httpd_uri_t scan  = { .uri = "/scan",    .method = HTTP_GET,  .handler = scan_get };
+    httpd_uri_t save  = { .uri = "/save",    .method = HTTP_POST, .handler = save_post };
+    httpd_uri_t stime = { .uri = "/settime", .method = HTTP_POST, .handler = settime_post };
+    httpd_uri_t other = { .uri = "/*",       .method = HTTP_GET,  .handler = redirect_get };
     httpd_register_uri_handler(srv, &form);
     httpd_register_uri_handler(srv, &scan);
     httpd_register_uri_handler(srv, &save);
+    httpd_register_uri_handler(srv, &stime);
     httpd_register_uri_handler(srv, &other);
 
     // Park here; save_post() reboots on success.

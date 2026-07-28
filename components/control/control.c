@@ -162,6 +162,14 @@ bool control_apply_kv(const char *key, const char *val, int vlen)
     else if (K("temp2_mac")) { if (vlen == 0) memset(c.shelly_mac[1], 0, 6); else if (!parse_mac(val, c.shelly_mac[1])) ok = false; }
     else if (K("temp1_offset")) c.temp_offset[0] = parse_offset_centi(val);
     else if (K("temp2_offset")) c.temp_offset[1] = parse_offset_centi(val);
+    else if (K("temp1_sec"))    c.temp_sec[0] = (uint8_t)(atoi(val) % 60);
+    else if (K("temp2_sec"))    c.temp_sec[1] = (uint8_t)(atoi(val) % 60);
+    else if (K("temp1_len")) { int l = atoi(val); c.temp_len[0] = (uint8_t)(l < 1 ? 1 : l > 8 ? 8 : l); }
+    else if (K("temp2_len")) { int l = atoi(val); c.temp_len[1] = (uint8_t)(l < 1 ? 1 : l > 8 ? 8 : l); }
+    else if (K("date_enabled")) c.date_enabled = payload_on(val, vlen);
+    else if (K("date_sec"))     c.date_sec = (uint8_t)(atoi(val) % 60);
+    else if (K("date_len")) { int l = atoi(val); c.date_len = (uint8_t)(l < 1 ? 1 : l > 8 ? 8 : l); }
+    else if (K("tz")) { if (vlen > 0) { strncpy(c.tz, val, sizeof(c.tz) - 1); c.tz[sizeof(c.tz) - 1] = '\0'; } else ok = false; }
     else if (K("night_start")) { int m = hhmm_to_min(val); if (m >= 0) c.night_start_min = m; else ok = false; }
     else if (K("night_end"))   { int m = hhmm_to_min(val); if (m >= 0) c.night_end_min = m; else ok = false; }
     else if (K("alarm_time"))  { int m = hhmm_to_min(val); if (m >= 0) { c.alarm_hour = m / 60; c.alarm_min = m % 60; } else ok = false; }
@@ -274,6 +282,8 @@ int control_state_json(char *buf, size_t n)
         "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds\":%s,"
         "\"temp1_mac\":\"%s\",\"temp2_mac\":\"%s\","
         "\"temp1_offset\":\"%s\",\"temp2_offset\":\"%s\","
+        "\"temp1_sec\":%u,\"temp1_len\":%u,\"temp2_sec\":%u,\"temp2_len\":%u,"
+        "\"date_enabled\":\"%s\",\"date_sec\":%u,\"date_len\":%u,\"tz\":\"%s\","
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
         "\"temp1_batt\":\"%s\",\"temp2_batt\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"time\":\"%s\","
@@ -289,7 +299,10 @@ int control_state_json(char *buf, size_t n)
         alstat,
         onoff(c.temp_enabled), c.temp_decimals,
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
-        rom0, rom1, ds, mac0, mac1, off0, off1, t0, t1, b0, b1,
+        rom0, rom1, ds, mac0, mac1, off0, off1,
+        c.temp_sec[0], c.temp_len[0], c.temp_sec[1], c.temp_len[1],
+        onoff(c.date_enabled), c.date_sec, c.date_len, c.tz,
+        t0, t1, b0, b1,
         onoff(settings_is_night_now(&c, now, mins)), onoff(netclock_synced()), tbuf,
         ip, rssi, fw);
 }
