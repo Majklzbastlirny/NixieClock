@@ -86,16 +86,40 @@ static bool IRAM_ATTR on_alarm(gptimer_handle_t timer,
     if (!dead_phase) {
         // --- LIT phase for `tube` ---
         uint8_t d = s_digit[tube];
-        bool show = (d <= 9) && (on_us > 0) && !s_hold_off;
+        bool digit = (d <= 9);
 
-        // Cathode FIRST (stable digit), then bring the anode up — never reverse.
-        write_bcd(show ? d : BCD_BLANK);
-        gpio_set_level(PIN_DOT, (show && s_dot[tube]) ? 1 : 0);
-        write_select(sel_code(tube));     // KEY mux now points at this tube too
-        sample_key(tube);
+        if (s_hold_off) {
+            // OTA blank: park everything off, fully quiescent (no anode strobe).
+            write_select(SELECT_OFF);
+            write_bcd(BCD_BLANK);
+            gpio_set_level(PIN_DOT, 0);
+        } else if (digit && on_us > 0) {
+            // Lit digit: cathode FIRST (stable digit), then bring the anode up —
+            // never reverse (see the anti-ghosting note at the top).
+            write_bcd(d);
+            gpio_set_level(PIN_DOT, s_dot[tube] ? 1 : 0);
+            write_select(sel_code(tube));     // KEY mux now points at this tube too
+            sample_key(tube);
+        } else if (on_us > 0) {
+            // Display on but THIS tube is blank: keep its anode OFF, not just the
+            // cathode. A powered anode over blanked cathodes still leaks a faint
+            // glow (the dim ghosts on e.g. leading temperature digits). We forgo
+            // this slot's key scan while dark — the only blank-while-lit tubes
+            // are leading zeros and the temp interlude, none of which are button
+            // tubes during the normal time display.
+            write_select(SELECT_OFF);
+            write_bcd(BCD_BLANK);
+            gpio_set_level(PIN_DOT, 0);
+        } else {
+            // Whole display off (brightness 0): keep selecting the tube (cathode
+            // blanked, so it stays dark) so its multiplexed button still scans —
+            // that's how bright+ recovers the display from 0.
+            write_bcd(BCD_BLANK);
+            gpio_set_level(PIN_DOT, 0);
+            write_select(sel_code(tube));
+            sample_key(tube);
+        }
 
-        // Even at brightness 0 we briefly select the tube (cathode blanked, so
-        // it stays dark) so its button still gets scanned.
         next += (on_us > 0) ? on_us : MIN_ON_US;
         dead_phase = true;
     } else {
