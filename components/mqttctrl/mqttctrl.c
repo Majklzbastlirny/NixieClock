@@ -132,6 +132,9 @@ static void publish_state(void)
     if (temps_get(1, &cv)) fmt_centi(cv, t1, sizeof(t1)); else snprintf(t1, sizeof(t1), "unknown");
     fmt_centi(s_temp_in[0], in0, sizeof(in0));
     fmt_centi(s_temp_in[1], in1, sizeof(in1));
+    char off0[12], off1[12];
+    fmt_centi(c.temp_offset[0], off0, sizeof(off0));
+    fmt_centi(c.temp_offset[1], off1, sizeof(off1));
 
     // Assigned DS18B20 ROM per slot (16 hex, or "" if unset).
     char rom0[TEMP_ROM_STRLEN] = "", rom1[TEMP_ROM_STRLEN] = "";
@@ -186,7 +189,7 @@ static void publish_state(void)
     if (p0 < 0) snprintf(bt0, sizeof(bt0), "unknown"); else snprintf(bt0, sizeof(bt0), "%d", p0);
     if (p1 < 0) snprintf(bt1, sizeof(bt1), "unknown"); else snprintf(bt1, sizeof(bt1), "%d", p1);
 
-    char buf[1600];
+    char buf[1700];
     int n = snprintf(buf, sizeof(buf),
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
@@ -198,6 +201,7 @@ static void publish_state(void)
         "\"temp1_in\":%s,\"temp2_in\":%s,"
         "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds_roms\":\"%s\",\"ds\":{%s},"
         "\"temp1_mac\":\"%s\",\"temp2_mac\":\"%s\","
+        "\"temp1_offset\":%s,\"temp2_offset\":%s,"
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
         "\"temp1_batt\":\"%s\",\"temp2_batt\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"rtc\":\"%s\","
@@ -210,7 +214,7 @@ static void publish_state(void)
         c.alarm_snooze_min, onoff(alarm_is_ringing()), alstat,
         onoff(c.temp_enabled),
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
-        in0, in1, rom0, rom1, roms, dsobj, mac0, mac1, t0, t1, bt0, bt1,
+        in0, in1, rom0, rom1, roms, dsobj, mac0, mac1, off0, off1, t0, t1, bt0, bt1,
         onoff(settings_is_night(&c, mins)), onoff(netclock_synced()),
         onoff(rtc_present()), ip, rssi);
     if (n > 0)
@@ -368,6 +372,15 @@ static void publish_discovery(void)
         snprintf(ex, sizeof(ex),
             ",\"cmd_t\":\"%s/temp%d_mac\",\"pattern\":\"^([0-9A-Fa-f:]{17})?$\"", s_cmd, n);
         disc("text", suf, nm, suf, ex);
+
+        // Calibration offset added to this slot's reading before it is shown /
+        // reported. Command routes through control_apply_kv (temp%d_offset).
+        snprintf(suf, sizeof(suf), "temp%d_offset", n);
+        snprintf(nm, sizeof(nm), "Temp slot %d offset", n);
+        snprintf(ex, sizeof(ex),
+            ",\"cmd_t\":\"%s/temp%d_offset\",\"min\":-10,\"max\":10,\"step\":0.1,"
+            "\"unit_of_meas\":\"\\u00b0C\",\"mode\":\"box\",\"entity_category\":\"config\"", s_cmd, n);
+        disc("number", suf, nm, suf, ex);
 
         snprintf(suf, sizeof(suf), "temp%d", n);
         snprintf(nm, sizeof(nm), "Temp slot %d", n);

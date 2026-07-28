@@ -140,7 +140,10 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   ~10s=factory reset). Snooze is a dedicated GPIO.
 - **Settings schema:** bump `SETTINGS_VERSION` in `settings.h` when you change
   `clock_settings_t`; a version/size mismatch resets to defaults (creds are in a
-  separate NVS namespace, so they survive). (v2→v3 added `shelly_mac`.)
+  separate NVS namespace, so they survive). (v2→v3 added `shelly_mac`; v3→v4
+  added `temp_offset` — a per-slot calibration applied in `temps_get` on
+  read-out, so it shifts display + MQTT/REST alike but leaves the raw DS picker
+  list untouched.)
 - **BLE/NimBLE config (burned us):** BT is on for `blescan` (`sdkconfig.defaults`).
   Two non-obvious pins: (1) do **not** trim NimBLE to observer-only roles — that
   leaves `ble_hs_resolv` referencing `ble_sm_alg_encrypt` which then isn't

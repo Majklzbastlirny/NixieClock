@@ -21,7 +21,7 @@
 #include <stddef.h>
 
 #define SETTINGS_MAGIC   0x4E58u   // 'NX'
-#define SETTINGS_VERSION 3
+#define SETTINGS_VERSION 4
 
 #define TEMP_SLOTS 2
 
@@ -69,6 +69,7 @@ typedef struct {
     uint8_t  temp_src[TEMP_SLOTS];         // per slot: temp_src_t
     uint8_t  temp_rom[TEMP_SLOTS][8];      // DS18B20 ROM code (src == DS18B20)
     uint8_t  shelly_mac[TEMP_SLOTS][6];    // Shelly BLU BLE MAC (src == SHELLY)
+    int16_t  temp_offset[TEMP_SLOTS];      // per-slot calibration, centi-degrees C
 } clock_settings_t;
 
 // Load from NVS (or defaults if absent/corrupt) and prepare the lock. Also

@@ -29,6 +29,7 @@ typedef struct {
     uint8_t  src;         // temp_src_t, mirrored from settings
     uint8_t  rom[8];      // chosen DS18B20 ROM (when src == DS18B20)
     int8_t   batt;        // Shelly battery % (0..100), -1 = unknown
+    int16_t  offset;      // calibration offset applied on read-out, centi-deg C
 } slot_t;
 
 typedef struct {
@@ -64,10 +65,11 @@ void temps_init(void)
 {
     s_lock = xSemaphoreCreateMutex();
     for (int i = 0; i < TEMP_SLOTS; i++) {
-        s_slot[i].centi = TEMP_CENTI_INVALID;
-        s_slot[i].ts_ms = 0;
-        s_slot[i].src   = TEMP_SRC_NONE;
-        s_slot[i].batt  = -1;
+        s_slot[i].centi  = TEMP_CENTI_INVALID;
+        s_slot[i].ts_ms  = 0;
+        s_slot[i].src    = TEMP_SRC_NONE;
+        s_slot[i].batt   = -1;
+        s_slot[i].offset = 0;
     }
 }
 
@@ -85,6 +87,9 @@ void temps_apply_settings(const clock_settings_t *c)
         }
         s_slot[i].src = newsrc;
         memcpy(s_slot[i].rom, c->temp_rom[i], 8);
+        // Offset is a display calibration; changing it must NOT invalidate the
+        // reading (it just shifts the value shown on the next read-out).
+        s_slot[i].offset = c->temp_offset[i];
     }
     xSemaphoreGive(s_lock);
 }
@@ -97,7 +102,10 @@ bool temps_get(int slot, int16_t *centi_out)
     slot_t *s = &s_slot[slot];
     if (s->src != TEMP_SRC_NONE && s->ts_ms != 0 &&
         (now_ms() - s->ts_ms) < FRESH_MS && s->centi != TEMP_CENTI_INVALID) {
-        if (centi_out) *centi_out = s->centi;
+        int v = (int)s->centi + s->offset;    // apply calibration, then clamp
+        if (v < INT16_MIN + 1) v = INT16_MIN + 1;
+        if (v > INT16_MAX)     v = INT16_MAX;
+        if (centi_out) *centi_out = (int16_t)v;
         ok = true;
     }
     xSemaphoreGive(s_lock);

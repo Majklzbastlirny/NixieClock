@@ -187,6 +187,8 @@ temp1_rom             16-hex ROM    (empty string clears; used when source=ds18b
 temp2_rom             16-hex ROM
 temp1_mac             AA:BB:CC:DD:EE:FF  (empty clears; used when source=shelly)
 temp2_mac             AA:BB:CC:DD:EE:FF
+temp1_offset          calibration in °C, e.g. 0.5 / -1.2 (empty/0 = none), any source
+temp2_offset          calibration in °C
 ```
 
 **Actions** (`/api/action?a=…`):
@@ -471,6 +473,8 @@ temp1_rom             16 hex znaků ROM   (prázdný řetězec smaže; když sou
 temp2_rom             16 hex znaků ROM
 temp1_mac             AA:BB:CC:DD:EE:FF  (prázdný smaže; když source=shelly)
 temp2_mac             AA:BB:CC:DD:EE:FF
+temp1_offset          kalibrace ve °C, např. 0.5 / -1.2 (prázdné/0 = žádná), pro každý zdroj
+temp2_offset          kalibrace ve °C
 ```
 
 **Akce** (`/api/action?a=…`):

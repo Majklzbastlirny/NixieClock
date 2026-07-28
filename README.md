@@ -139,8 +139,9 @@ everywhere instantly:
   by MQTT, a DS18B20, or a **Shelly BLU H&T** read directly over BLE (passive
   BTHome v2 scan — no hub/gateway/cloud, picked from a live list in the web UI;
   press the sensor's button to highlight it in the list, and its battery level
-  shows with a low-battery cue — a colon blink on the tubes); configurable
-  decimals; negatives shown by blinking (no minus glyph), colon as decimal point.
+  shows with a low-battery cue — a colon blink on the tubes); a per-slot
+  calibration offset (°C); configurable decimals; negatives shown by blinking
+  (no minus glyph), colon as decimal point.
 - Alarm with snooze + dismiss, day-of-week mask, and RTTTL melodies.
 - Cold-start "slot machine" animation until the time is known.
 - **Over-the-air updates** — upload a new `firmware.bin` from the web UI (dual-OTA

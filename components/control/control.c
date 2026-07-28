@@ -70,6 +70,18 @@ static bool parse_mac(const char *s, uint8_t out[6])
 
 static const char *onoff(bool v) { return v ? "ON" : "OFF"; }
 
+// Parse a calibration offset in degrees ("1.5", "-0.5", "2", "") into centi-
+// degrees. Empty/blank clears it (0). Clamped to a sane +/-50 C.
+static int16_t parse_offset_centi(const char *s)
+{
+    if (!s || !*s) return 0;
+    double d = atof(s);
+    int v = (int)(d * 100.0 + (d < 0 ? -0.5 : 0.5));
+    if (v < -5000) v = -5000;
+    if (v >  5000) v =  5000;
+    return (int16_t)v;
+}
+
 static void fmt_centi(int centi, char *buf, size_t n)
 {
     int v = centi, neg = v < 0;
@@ -110,6 +122,8 @@ bool control_apply_kv(const char *key, const char *val, int vlen)
     else if (K("temp2_rom")) { if (vlen == 0) memset(c.temp_rom[1], 0, 8); else if (!temps_parse_rom(val, c.temp_rom[1])) ok = false; }
     else if (K("temp1_mac")) { if (vlen == 0) memset(c.shelly_mac[0], 0, 6); else if (!parse_mac(val, c.shelly_mac[0])) ok = false; }
     else if (K("temp2_mac")) { if (vlen == 0) memset(c.shelly_mac[1], 0, 6); else if (!parse_mac(val, c.shelly_mac[1])) ok = false; }
+    else if (K("temp1_offset")) c.temp_offset[0] = parse_offset_centi(val);
+    else if (K("temp2_offset")) c.temp_offset[1] = parse_offset_centi(val);
     else if (K("night_start")) { int m = hhmm_to_min(val); if (m >= 0) c.night_start_min = m; else ok = false; }
     else if (K("night_end"))   { int m = hhmm_to_min(val); if (m >= 0) c.night_end_min = m; else ok = false; }
     else if (K("alarm_time"))  { int m = hhmm_to_min(val); if (m >= 0) { c.alarm_hour = m / 60; c.alarm_min = m % 60; } else ok = false; }
@@ -169,6 +183,10 @@ int control_state_json(char *buf, size_t n)
     if (memcmp(c.shelly_mac[0], zmac, 6) != 0) mac_to_str(c.shelly_mac[0], mac0);
     if (memcmp(c.shelly_mac[1], zmac, 6) != 0) mac_to_str(c.shelly_mac[1], mac1);
 
+    char off0[12], off1[12];
+    fmt_centi(c.temp_offset[0], off0, sizeof(off0));
+    fmt_centi(c.temp_offset[1], off1, sizeof(off1));
+
     // Every DS18B20 on the bus, with its live reading and which slot (if any)
     // it is assigned to: [{"rom":"..","t":"23.45","slot":1},...]. The web UI
     // renders this with per-sensor assign/unassign buttons.
@@ -209,6 +227,7 @@ int control_state_json(char *buf, size_t n)
         "\"temp1_source\":\"%s\",\"temp2_source\":\"%s\","
         "\"temp1_rom\":\"%s\",\"temp2_rom\":\"%s\",\"ds\":%s,"
         "\"temp1_mac\":\"%s\",\"temp2_mac\":\"%s\","
+        "\"temp1_offset\":\"%s\",\"temp2_offset\":\"%s\","
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
         "\"temp1_batt\":\"%s\",\"temp2_batt\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"time\":\"%s\","
@@ -223,7 +242,7 @@ int control_state_json(char *buf, size_t n)
         alstat,
         onoff(c.temp_enabled), c.temp_decimals,
         src_name(c.temp_src[0]), src_name(c.temp_src[1]),
-        rom0, rom1, ds, mac0, mac1, t0, t1, b0, b1,
+        rom0, rom1, ds, mac0, mac1, off0, off1, t0, t1, b0, b1,
         onoff(settings_is_night(&c, mins)), onoff(netclock_synced()), tbuf,
         ip, rssi, fw);
 }
