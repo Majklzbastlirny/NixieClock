@@ -144,6 +144,7 @@ bool control_apply_kv(const char *key, const char *val, int vlen)
     else if (K("night_mode"))       c.night_mode = night_mode_from_name(val);
     else if (K("latitude"))         c.lat_e2 = parse_coord_e2(val, 9000);
     else if (K("longitude"))        c.lon_e2 = parse_coord_e2(val, 18000);
+    else if (K("sun_offset")) { int m = atoi(val); c.sun_offset_min = (int8_t)(m < -120 ? -120 : m > 120 ? 120 : m); }
     else if (K("night_brightness")) c.night_brightness = (uint8_t)atoi(val);
     else if (K("blink_colon"))      c.blink_colon = payload_on(val, vlen);
     else if (K("h24"))              c.h24 = payload_on(val, vlen);
@@ -269,7 +270,7 @@ int control_state_json(char *buf, size_t n)
 
     return snprintf(buf, n,
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_mode\":\"%s\","
-        "\"latitude\":\"%s\",\"longitude\":\"%s\","
+        "\"latitude\":\"%s\",\"longitude\":\"%s\",\"sun_offset\":%d,"
         "\"bh1750\":\"%s\",\"lux\":%d,"
         "\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
@@ -289,7 +290,7 @@ int control_state_json(char *buf, size_t n)
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"time\":\"%s\","
         "\"ip\":\"%s\",\"rssi\":%d,\"fw\":\"%s\"}",
         c.brightness, onoff(c.night_enabled), night_mode_name(c.night_mode),
-        lat, lon, onoff(bh1750_present()), lux, c.night_brightness,
+        lat, lon, c.sun_offset_min, onoff(bh1750_present()), lux, c.night_brightness,
         c.night_start_min / 60, c.night_start_min % 60,
         c.night_end_min / 60, c.night_end_min % 60,
         onoff(c.blink_colon), onoff(c.h24), onoff(c.ap_enabled),

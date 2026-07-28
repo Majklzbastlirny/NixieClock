@@ -156,8 +156,16 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   it force `PIN_COLON=0` again); `nixie_set_colon` still early-returns while held.
 - **Interlude schedule is configurable** (`interlude_for_second` in `main.c`):
   temp1/temp2/date each own a `[sec, sec+len)` window (mod 60), precedence
-  temp0 > temp1 > date. `show_date` renders `DOW _ DD:MM` (ISO weekday, blank,
-  day:month with the colon as the `.`). Windows shouldn't overlap.
+  temp0 > temp1 > date. `show_date` renders `DDMM : DoW` — day+month on the left
+  four tubes, then the colon (fixed at tubes 3|4), a blank, and the ISO weekday
+  digit on tube 5. (DoW can't sit right of a colon-separated `DD:MM` because the
+  colon is hardware-fixed between tubes 3|4, so the date runs together as DDMM.)
+  Windows shouldn't overlap.
+- **Sun mode has a twilight offset** (`sun_offset_min`, minutes): shifts the
+  sunset/sunrise threshold in `settings_sun_is_night` (~0.2 deg/min approx), +ve
+  keeps the display bright longer into dusk/dawn. It lives in the byte that used
+  to be `auto_brightness` (dead) — repurposed in place, **same struct size so no
+  schema bump / settings reset**; existing stored value (0) = 0 offset.
 - **Buttons sit on tube slots 1..5** (slot 0 has no button): 1=bright+, 2=bright−,
   3=show-temp, 4=anti-poison, 5=provision (short=show IP, ~3s=provision,
   ~10s=factory reset). Snooze is a dedicated GPIO.

@@ -57,6 +57,7 @@ static const char PAGE[] =
 "<div class='s' id='sunrow'>Sunrise/sunset location (offline):</div>"
 "<label>Latitude <input id='latitude' size='8' onchange='set(this)'></label>"
 "<label>Longitude <input id='longitude' size='8' onchange='set(this)'></label>"
+"<label>Twilight offset (min) <input type='number' min='-120' max='120' id='sun_offset' onchange='set(this)'></label>"
 "<div class='s' id='luxrow'>Light sensor: <span id='luxval'>-</span></div>"
 "<label>Blink colon <input type='checkbox' id='blink_colon' onchange='setck(this)'></label>"
 "<label>24-hour <input type='checkbox' id='h24' onchange='setck(this)'></label>"

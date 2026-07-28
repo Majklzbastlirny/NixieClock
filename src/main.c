@@ -220,20 +220,20 @@ static bool seed_system_clock_from_rtc(void)
     return true;
 }
 
-// Date interlude: day-of-week digit, a blank, then DD:MM with the colon as the
-// day/month separator (the tubes have no other separators). ISO weekday 1..7
-// (Mon..Sun). e.g. Tue 28 Jul -> "2_28:07".
+// Date interlude: DD MM on the left four tubes, then the colon, a blank, and the
+// day-of-week digit (ISO 1..7, Mon..Sun). The single colon (fixed between tubes
+// 3|4) separates the date from the weekday. e.g. Tue 28 Jul -> "2807: 2".
 static void show_date(const struct tm *lt)
 {
     int iso = lt->tm_wday ? lt->tm_wday : 7;   // tm_wday 0=Sun -> 7
     int dd = lt->tm_mday, mm = lt->tm_mon + 1;
     uint8_t d[NIXIE_NUM_TUBES] = {
-        (uint8_t)iso, NIXIE_BLANK,
         (uint8_t)(dd / 10), (uint8_t)(dd % 10),
         (uint8_t)(mm / 10), (uint8_t)(mm % 10),
+        NIXIE_BLANK, (uint8_t)iso,
     };
     nixie_set_digits(d);
-    nixie_set_colon(true);                     // the '.' between day and month
+    nixie_set_colon(true);                     // separates the date from the DoW
 }
 
 // Which interlude (if any) owns second `sec` of the minute. Each interlude runs

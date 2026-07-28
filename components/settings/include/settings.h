@@ -55,9 +55,12 @@ typedef struct {
     uint16_t night_end_min;    // window end (06:00=360); wraps past midnight
     int16_t  lat_e2;           // latitude  x100 (deg, N+), for NIGHT_MODE_SUN
     int16_t  lon_e2;           // longitude x100 (deg, E+), for NIGHT_MODE_SUN
-    bool     auto_brightness;  // future BH1750: sensor drives level when true
-    uint8_t  bright_min;       // auto-brightness clamp, low
-    uint8_t  bright_max;       // auto-brightness clamp, high
+    int8_t   sun_offset_min;   // sun-mode twilight offset, minutes (was the dead
+                               // auto_brightness byte — repurposed, same size, so
+                               // no schema bump). +ve = stay bright longer into
+                               // dusk/dawn twilight; -ve = dim earlier.
+    uint8_t  bright_min;       // (reserved / unused)
+    uint8_t  bright_max;       // (reserved / unused)
     bool     blink_colon;      // blink the ':' at 1 Hz vs. steady on
     bool     h24;              // 24-hour format (false = 12-hour, blanks leading 0)
 

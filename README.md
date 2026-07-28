@@ -154,7 +154,9 @@ everywhere instantly:
   button to highlight it, and its battery level shows with a low-battery cue — a
   colon blink); a per-slot calibration offset (°C); configurable decimals;
   negatives shown by blinking (no minus glyph), colon as decimal point. The date
-  reads `DOW _ DD:MM` (weekday, day and month).
+  reads `DDMM : DoW` (day, month, then the ISO weekday after the colon). Night
+  dimming in sun mode also takes a twilight offset (stay bright longer into
+  dusk/dawn).
 - Alarm with snooze + dismiss, day-of-week mask, and RTTTL melodies.
 - Cold-start "slot machine" animation until the time is known.
 - **Over-the-air updates** — upload a new `firmware.bin` from the web UI (dual-OTA

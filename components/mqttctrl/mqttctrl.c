@@ -206,7 +206,8 @@ static void publish_state(void)
     char buf[2048];
     int n = snprintf(buf, sizeof(buf),
         "{\"brightness\":%u,\"night_enabled\":\"%s\",\"night_mode\":\"%s\","
-        "\"latitude\":\"%s\",\"longitude\":\"%s\",\"bh1750\":\"%s\",\"lux\":%d,"
+        "\"latitude\":\"%s\",\"longitude\":\"%s\",\"sun_offset\":%d,"
+        "\"bh1750\":\"%s\",\"lux\":%d,"
         "\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
         "\"blink_colon\":\"%s\",\"h24\":\"%s\",\"ap_enabled\":\"%s\","
@@ -225,7 +226,7 @@ static void publish_state(void)
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"rtc\":\"%s\","
         "\"ip\":\"%s\",\"rssi\":%d}",
         c.brightness, onoff(c.night_enabled), night_mode_name(c.night_mode),
-        lat, lon, onoff(bh1750_present()), lux, c.night_brightness,
+        lat, lon, c.sun_offset_min, onoff(bh1750_present()), lux, c.night_brightness,
         c.night_start_min / 60, c.night_start_min % 60,
         c.night_end_min / 60, c.night_end_min % 60,
         onoff(c.blink_colon), onoff(c.h24), onoff(c.ap_enabled),
@@ -317,6 +318,10 @@ static void publish_discovery(void)
         ",\"cmd_t\":\"%s/longitude\",\"min\":-180,\"max\":180,\"step\":0.01,"
         "\"mode\":\"box\",\"entity_category\":\"config\"", s_cmd);
     disc("number", "longitude", "Longitude", "longitude", ex);
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/sun_offset\",\"min\":-120,\"max\":120,\"step\":5,"
+        "\"unit_of_meas\":\"min\",\"mode\":\"box\",\"entity_category\":\"config\"", s_cmd);
+    disc("number", "sun_offset", "Twilight offset", "sun_offset", ex);
 
     // Ambient light from the BH1750 (sensor; -1 / stays put when none present).
     snprintf(ex, sizeof(ex),

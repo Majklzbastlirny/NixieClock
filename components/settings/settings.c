@@ -34,9 +34,7 @@ static void load_defaults(clock_settings_t *c)
     c->night_end_min    = 6 * 60;         // 06:00
     c->lat_e2           = 5008;           // Prague 50.08 N
     c->lon_e2           = 1444;           // Prague 14.44 E
-    c->auto_brightness  = false;
-    c->bright_min       = 20;
-    c->bright_max       = 255;
+    c->sun_offset_min   = 0;   // no twilight offset by default
     c->blink_colon      = true;
     c->h24              = true;
 
@@ -213,7 +211,13 @@ bool settings_sun_is_night(const clock_settings_t *s, int64_t utc)
     if (cosz > 1.0)  cosz = 1.0;
     if (cosz < -1.0) cosz = -1.0;
     double elevation = 90.0 - acos(cosz) * 180.0 / M_PI;
-    return elevation < -0.833;
+
+    // -0.833 deg = geometric sunset (with refraction). The twilight offset shifts
+    // this by an approximate solar-elevation rate (~0.2 deg/min near the horizon):
+    // a +ve offset lowers the threshold, so night starts later after sunset and
+    // ends earlier before sunrise (display stays bright through more twilight).
+    double threshold = -0.833 - s->sun_offset_min * 0.2;
+    return elevation < threshold;
 }
 
 // Map ambient lux to a level between the night (dark) and day (bright) levels,
