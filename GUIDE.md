@@ -177,7 +177,10 @@ night_start           HH:MM         (fixed mode: window start)
 night_end             HH:MM         (fixed mode: window end)
 latitude              e.g. 50.08    (sun mode: degrees N+, offline sunrise calc)
 longitude             e.g. 14.44    (sun mode: degrees E+)
-sun_offset            -120..120 min (sun mode twilight: +ve = stay bright longer)
+sun_offset            -120..120 min (sun mode twilight; +ve = dim later after
+                                     sunset & brighten earlier before sunrise,
+                                     i.e. stay bright through twilight; -ve = the
+                                     opposite. Approximate minutes, ~0.2°/min.)
 blink_colon           ON / OFF
 h24                   ON / OFF      (off = 12-hour, blanks leading zero)
 ap_enabled            ON / OFF      (anti-poison enabled)
@@ -475,7 +478,10 @@ night_start           HH:MM         (režim fixed: začátek okna)
 night_end             HH:MM         (režim fixed: konec okna)
 latitude              např. 50.08   (režim sun: stupně S+, offline výpočet)
 longitude             např. 14.44   (režim sun: stupně V+)
-sun_offset            -120..120 min (soumrak: kladné = déle svítí do šera)
+sun_offset            -120..120 min (soumrak; kladné = ztlumí později po západu
+                                     a rozsvítí dříve před východem, tj. déle
+                                     svítí do šera; záporné = opačně. Přibližné
+                                     minuty, ~0.2°/min.)
 blink_colon           ON / OFF
 h24                   ON / OFF      (off = 12hodinový, skryje úvodní nulu)
 ap_enabled            ON / OFF      (anti-poison zapnut)
