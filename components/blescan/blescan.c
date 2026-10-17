@@ -10,6 +10,7 @@
 #include "blescan.h"
 #include "temps.h"
 
+#include <stdint.h>
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -28,18 +29,18 @@
 static const char *TAG = "blescan";
 
 #define MAXDEV      16
-#define STALE_MS    600000u    // hide devices unheard for >10 min
+#define STALE_MS    600000     // hide devices unheard for >10 min
 
 typedef struct {
     bool     used;
     uint8_t  mac[6];           // little-endian, as delivered by the controller
     int8_t   rssi;
-    uint32_t last_ms;
+    int64_t  last_ms;          // esp_timer ms (64-bit: no 49.7-day wrap)
     char     name[20];
     bool     ht, hh, hb;       // has temperature / humidity / battery
     float    t, h;
     int      batt;
-    uint32_t press_ms;         // last BTHome button-press event (0 = never)
+    int64_t  press_ms;         // last BTHome button-press event (0 = never)
 } dev_t;
 
 static dev_t             s_dev[MAXDEV];
@@ -53,7 +54,7 @@ typedef struct {
 } slot_map_t;
 static slot_map_t s_slotmap[TEMP_SLOTS];
 
-static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
+static int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
 
 // Standard "AA:BB:.." string (controller gives LSB first, so reverse).
 static void mac_str(const uint8_t *le, char *out /* >=18 */)
@@ -97,7 +98,7 @@ static int obj_len(uint8_t id)
 static dev_t *find_or_add(const uint8_t *mac)
 {
     int free_i = -1, oldest = -1;
-    uint32_t oldest_ms = 0xFFFFFFFFu;
+    int64_t oldest_ms = INT64_MAX;
     for (int i = 0; i < MAXDEV; i++) {
         if (s_dev[i].used && memcmp(s_dev[i].mac, mac, 6) == 0) return &s_dev[i];
         if (!s_dev[i].used && free_i < 0) free_i = i;
@@ -154,7 +155,7 @@ static void bthome_handle(const uint8_t *mac, int8_t rssi,
         i += 1 + ol;
     }
 
-    uint32_t now = now_ms();
+    int64_t now = now_ms();
     char ms[18];
     mac_str(mac, ms);
 
@@ -216,7 +217,7 @@ size_t blescan_devices_json(char *buf, size_t n)
     buf[o++] = '[';
 
     xSemaphoreTake(s_mtx, portMAX_DELAY);
-    uint32_t now = now_ms();
+    int64_t now = now_ms();
     bool first = true;
     for (int i = 0; i < MAXDEV && o < n - 160; i++) {
         if (!s_dev[i].used) continue;
@@ -238,7 +239,7 @@ size_t blescan_devices_json(char *buf, size_t n)
         if (s_dev[i].hh) o += snprintf(buf + o, n - o, ",\"h\":%d", (int)(s_dev[i].h + 0.5f));
         if (s_dev[i].hb) o += snprintf(buf + o, n - o, ",\"b\":%d", s_dev[i].batt);
         if (s_dev[i].press_ms) {
-            uint32_t pa = (now - s_dev[i].press_ms) / 1000;   // seconds since press
+            int64_t pa = (now - s_dev[i].press_ms) / 1000;    // seconds since press
             if (pa < 30) o += snprintf(buf + o, n - o, ",\"pa\":%u", (unsigned)pa);
         }
         o += snprintf(buf + o, n - o, "}");

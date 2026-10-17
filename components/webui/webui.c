@@ -422,22 +422,13 @@ static esp_err_t settime_req(httpd_req_t *req)
 
     if (query_param(req, "tz", tz, sizeof(tz)) && tz[0]) {
         control_apply_kv("tz", tz, (int)strlen(tz));   // persist
-        setenv("TZ", tz, 1);                           // apply now for the RTC write
+        setenv("TZ", tz, 1);                           // apply now for the reply
         tzset();
     }
 
     struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
     settimeofday(&tv, NULL);
-
-    time_t now = tv.tv_sec;
-    struct tm lt;
-    localtime_r(&now, &lt);
-    rtc_time_t r = {
-        .year = lt.tm_year + 1900, .month = lt.tm_mon + 1, .day = lt.tm_mday,
-        .hour = lt.tm_hour, .minute = lt.tm_min, .second = lt.tm_sec,
-        .weekday = lt.tm_wday + 1,
-    };
-    if (rtc_present()) rtc_set(&r);
+    if (rtc_present()) rtc_set_epoch((int64_t)epoch);   // RTC holds UTC
     settings_persist_epoch((int64_t)epoch);
     ESP_LOGI(TAG, "clock set from client: epoch %lld", epoch);
 

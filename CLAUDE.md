@@ -182,6 +182,22 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   schema bump never wipes it. `main.c` writes it every ~3h (and on every time-set
   /SNTP sync); at boot, if the RTC is dead/invalid it reseeds from this so the
   clock shows an approximate time instead of 1970.
+- **The RTC chip holds UTC, not local time (don't regress).** Always go through
+  `rtc_get_epoch`/`rtc_set_epoch` (UTC epoch in/out; `days_from_civil` since
+  newlib has no `timegm`). It used to hold local time, which left the clock an
+  hour off after an offline reboot across a DST change (or a TZ edit). Older
+  RTC contents are detected by the NVS marker `"rtc_utc"` (`clock` namespace,
+  outside the blob): absent = legacy local, read once via `mktime` + current TZ
+  and rewritten as UTC. `rtc_set_epoch` sets the marker; `netcfg_factory_reset`
+  re-sets it after the NVS wipe (the chip still holds UTC).
+- **Cross-task actions:** web (httpd) and MQTT call `alarm_snooze`/`alarm_dismiss`
+  /`antipoison_trigger` while the main loop ticks those modules. `alarm.c`
+  guards its state transitions with a mutex (created in `alarm_init`, which is
+  therefore called *before* the network surfaces start); `antipoison_trigger`
+  only raises a flag that `antipoison_tick` consumes. Keep new cross-task
+  actions on one of those two patterns.
+- **Uptime timestamps are `int64_t` ms** (`esp_timer_get_time()/1000`) everywhere
+  — no 32-bit millis (blescan used to, and wrapped every 49.7 days).
 - **TZ is owned by `main.c`, not `netclock`** (was hardcoded in both). Boot applies
   `setenv("TZ", cfg.tz)` before the RTC seed and re-applies on a settings change;
   `netclock_start` must NOT `setenv` TZ (that clobbered a custom zone). Set it via

@@ -16,14 +16,16 @@ static int64_t s_last_run_ms = 0;        // when the last run ended (for period)
 static int64_t s_last_step_ms = 0;
 static uint8_t s_step        = 0;
 static uint8_t s_saved_level = 0;        // clock brightness to restore
+static volatile bool s_trigger_req = false; // manual run requested (any task)
 
 static void begin(int64_t now_ms)
 {
+    if (!s_active)   // a restart mid-run must not "save" the scrub level
+        s_saved_level = nixie_get_brightness();
     s_active = true;
     s_started_ms = now_ms;
     s_last_step_ms = 0;
     s_step = 0;
-    s_saved_level = nixie_get_brightness();
     nixie_set_brightness(SCRUB_LEVEL);
     nixie_set_colon(false);
     ESP_LOGI(TAG, "scrub start (%lu ms)", (unsigned long)s_duration_ms);
@@ -44,14 +46,10 @@ void antipoison_init(void)
 
 void antipoison_trigger(void)
 {
-    // Picked up on the next tick; begin() needs a timestamp.
-    s_started_ms = 0;
-    s_active = true;
-    s_step = 0;
-    s_last_step_ms = 0;
-    s_saved_level = nixie_get_brightness();
-    nixie_set_brightness(SCRUB_LEVEL);
-    nixie_set_colon(false);
+    // Also called from the web UI / MQTT tasks, so only raise a request here:
+    // antipoison_tick() starts the run in the main loop, keeping the routine's
+    // state and the tube brightness owned by a single task.
+    s_trigger_req = true;
     ESP_LOGI(TAG, "scrub triggered");
 }
 
@@ -60,14 +58,15 @@ void antipoison_set_duration_ms(uint32_t duration_ms){ s_duration_ms = duration_
 
 bool antipoison_tick(int64_t now_ms)
 {
-    if (!s_active) {
+    if (s_trigger_req) {
+        // Manual trigger from antipoison_trigger(): (re)start the run now.
+        s_trigger_req = false;
+        begin(now_ms);
+    } else if (!s_active) {
         // Time for an automatic run? (period_s == 0 disables auto.)
         if (s_period_s == 0) return false;
         if (now_ms - s_last_run_ms < (int64_t)s_period_s * 1000) return false;
         begin(now_ms);
-    } else if (s_started_ms == 0) {
-        // Manual trigger from antipoison_trigger(): finish setup now we have time.
-        s_started_ms = now_ms;
     }
 
     if (now_ms - s_started_ms >= (int64_t)s_duration_ms) {

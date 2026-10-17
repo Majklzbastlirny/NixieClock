@@ -120,6 +120,13 @@ uint32_t settings_version(void);
 void settings_persist_epoch(int64_t sec);
 bool settings_load_epoch(int64_t *sec);
 
+// RTC storage-format marker (NVS key "rtc_utc", also outside the blob). Older
+// firmware kept LOCAL time in the RTC chip, which goes an hour wrong across a
+// DST change; current firmware keeps UTC. Absent = legacy contents, which
+// rtcdev reads once as local time and rewrites as UTC (then marks this).
+bool settings_rtc_is_utc(void);
+void settings_mark_rtc_utc(void);
+
 // --- Pure display-policy helpers (operate on a snapshot, no locking) --------
 // True if minute-of-day `mins` (0..1439) falls in the fixed night window.
 bool settings_is_night(const clock_settings_t *s, int mins);

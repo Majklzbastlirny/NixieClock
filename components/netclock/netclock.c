@@ -28,19 +28,7 @@ static void on_time_sync(struct timeval *tv)
     s_synced = true;
 
     time_t now = time(NULL);
-    struct tm lt;
-    localtime_r(&now, &lt);
-
-    rtc_time_t r = {
-        .year    = lt.tm_year + 1900,
-        .month   = lt.tm_mon + 1,
-        .day     = lt.tm_mday,
-        .hour    = lt.tm_hour,
-        .minute  = lt.tm_min,
-        .second  = lt.tm_sec,
-        .weekday = lt.tm_wday + 1,   // tm_wday 0=Sun -> RTC 1=Sun
-    };
-    if (rtc_set(&r) == ESP_OK)
+    if (rtc_set_epoch((int64_t)now) == ESP_OK)
         ESP_LOGI(TAG, "SNTP sync -> RTC updated");
     else
         ESP_LOGW(TAG, "SNTP sync but RTC write failed");

@@ -3,9 +3,14 @@
 //   - DS1307 / DS3231 @ 0x68 (time regs from 0x00, CH bit = clock-halt).
 // All BCD, run in 24h mode; only the common fields are touched, so swapping the
 // chip needs no code change.
+//
+// The chip holds UTC (no DST/TZ in it, so a DST change or a TZ edit while it's
+// offline can't leave it an hour wrong). Use rtc_get_epoch()/rtc_set_epoch();
+// rtc_get()/rtc_set() are the raw register-level calls underneath.
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "esp_err.h"
 
 typedef struct {
@@ -35,3 +40,11 @@ esp_err_t rtc_set(const rtc_time_t *t);
 // oscillator wasn't halted). A cold/unset DS1307 fails this -> caller shows the
 // "alive but unset" slot-machine animation until SNTP sets it.
 bool rtc_time_valid(const rtc_time_t *t);
+
+// Read the RTC as a UTC Unix epoch. ESP_OK only if it holds a valid time.
+// Contents written by older (local-time) firmware are interpreted with the
+// current TZ — so set TZ first — and rewritten as UTC, once.
+esp_err_t rtc_get_epoch(int64_t *utc);
+
+// Write a UTC Unix epoch to the RTC.
+esp_err_t rtc_set_epoch(int64_t utc);

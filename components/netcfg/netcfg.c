@@ -1,5 +1,6 @@
 #include "netcfg.h"
 #include "secrets.h"
+#include "settings.h"
 
 #include <string.h>
 
@@ -116,6 +117,10 @@ void netcfg_factory_reset(void)
             nvs_commit(h);
             nvs_close(h);
         }
+        // The RTC chip isn't touched by the wipe and still holds UTC, so keep
+        // its format marker — otherwise the next boot would read it as legacy
+        // local time and come up off by the TZ offset.
+        settings_mark_rtc_utc();
     }
 
     vTaskDelay(pdMS_TO_TICKS(300));   // let any in-flight log/HTTP flush

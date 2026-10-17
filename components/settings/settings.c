@@ -170,6 +170,27 @@ bool settings_load_epoch(int64_t *sec)
     return true;
 }
 
+#define NVS_KEY_RTC_UTC "rtc_utc"
+
+bool settings_rtc_is_utc(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return false;
+    uint8_t v = 0;
+    esp_err_t err = nvs_get_u8(h, NVS_KEY_RTC_UTC, &v);
+    nvs_close(h);
+    return err == ESP_OK && v;
+}
+
+void settings_mark_rtc_utc(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_set_u8(h, NVS_KEY_RTC_UTC, 1) == ESP_OK)
+        nvs_commit(h);
+    nvs_close(h);
+}
+
 bool settings_is_night(const clock_settings_t *s, int mins)
 {
     if (!s->night_enabled) return false;

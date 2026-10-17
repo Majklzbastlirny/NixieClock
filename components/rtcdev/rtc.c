@@ -1,6 +1,9 @@
 #include "rtc_clock.h"
 #include "i2cbus.h"
+#include "settings.h"
 #include "esp_log.h"
+
+#include <time.h>
 
 // Two RTC families are supported, auto-detected at open():
 //   - DS1307 / DS3231 @ 0x68: time registers start at 0x00; reg0 bit7 = CH
@@ -22,6 +25,7 @@ static const char *TAG = "rtc";
 static i2c_master_dev_handle_t s_dev = NULL;
 static rtc_kind_t s_kind = RTC_NONE;
 static bool s_invalid = false;   // last read saw CH (DS) or VL (PCF) set
+static bool s_utc = false;       // chip contents are UTC (false = legacy local)
 
 static inline uint8_t bcd2dec(uint8_t b) { return (uint8_t)((b >> 4) * 10 + (b & 0x0F)); }
 static inline uint8_t dec2bcd(uint8_t d) { return (uint8_t)(((d / 10) << 4) | (d % 10)); }
@@ -39,6 +43,7 @@ static esp_err_t attach(i2c_master_bus_handle_t bus, uint8_t addr)
 esp_err_t rtc_open(void)
 {
     i2c_master_bus_handle_t bus = i2cbus_get();
+    s_utc = settings_rtc_is_utc();
 
     // Probe PCF8563 first (0x51), then DS-family (0x68).
     if (i2c_master_probe(bus, PCF_ADDR, 100) == ESP_OK) {
@@ -118,7 +123,7 @@ esp_err_t rtc_set(const rtc_time_t *t)
     esp_err_t err = i2c_master_transmit(s_dev, buf, sizeof(buf), 1000);
     if (err == ESP_OK) {
         s_invalid = false;
-        ESP_LOGI(TAG, "RTC set to %04d-%02d-%02d %02d:%02d:%02d",
+        ESP_LOGI(TAG, "RTC set to %04d-%02d-%02d %02d:%02d:%02d UTC",
                  t->year, t->month, t->day, t->hour, t->minute, t->second);
     }
     return err;
@@ -136,4 +141,61 @@ bool rtc_time_valid(const rtc_time_t *t)
            t->month >= 1    && t->month <= 12   &&
            t->day   >= 1    && t->day   <= 31   &&
            t->hour  <= 23   && t->minute <= 59  && t->second <= 59;
+}
+
+// Days since 1970-01-01 for a proleptic Gregorian date (H. Hinnant's
+// days_from_civil). Newlib has no timegm(), and mktime() would apply the TZ.
+static int64_t days_from_civil(int y, int m, int d)
+{
+    y -= (m <= 2);
+    int era = (y >= 0 ? y : y - 399) / 400;
+    int yoe = y - era * 400;                                   // [0, 399]
+    int doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;  // [0, 365]
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;           // [0, 146096]
+    return (int64_t)era * 146097 + doe - 719468;
+}
+
+esp_err_t rtc_get_epoch(int64_t *utc)
+{
+    rtc_time_t r;
+    esp_err_t err = rtc_get(&r);
+    if (err != ESP_OK) return err;
+    if (!rtc_time_valid(&r)) return ESP_ERR_INVALID_STATE;
+
+    int64_t e;
+    if (s_utc) {
+        e = days_from_civil(r.year, r.month, r.day) * 86400 +
+            r.hour * 3600 + r.minute * 60 + r.second;
+    } else {
+        // Written by older firmware as LOCAL time: interpret it with the
+        // current TZ, then rewrite it as UTC so this only ever happens once.
+        struct tm tm = {
+            .tm_year = r.year - 1900, .tm_mon = r.month - 1, .tm_mday = r.day,
+            .tm_hour = r.hour, .tm_min = r.minute, .tm_sec = r.second,
+            .tm_isdst = -1,
+        };
+        e = (int64_t)mktime(&tm);
+        if (rtc_set_epoch(e) == ESP_OK)
+            ESP_LOGI(TAG, "migrated RTC contents from local time to UTC");
+    }
+    if (utc) *utc = e;
+    return ESP_OK;
+}
+
+esp_err_t rtc_set_epoch(int64_t utc)
+{
+    time_t t = (time_t)utc;
+    struct tm g;
+    gmtime_r(&t, &g);
+    rtc_time_t r = {
+        .year = g.tm_year + 1900, .month = g.tm_mon + 1, .day = g.tm_mday,
+        .hour = g.tm_hour, .minute = g.tm_min, .second = g.tm_sec,
+        .weekday = g.tm_wday + 1,   // tm_wday 0=Sun -> RTC 1=Sun
+    };
+    esp_err_t err = rtc_set(&r);
+    if (err == ESP_OK && !s_utc) {
+        settings_mark_rtc_utc();   // chip now holds UTC (also covers the portal)
+        s_utc = true;
+    }
+    return err;
 }

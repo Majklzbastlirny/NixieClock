@@ -201,20 +201,10 @@ static bool capture_ip(uint8_t out[4])
 // Returns true if the clock was seeded.
 static bool seed_system_clock_from_rtc(void)
 {
-    rtc_time_t r;
-    if (rtc_get(&r) != ESP_OK || !rtc_time_valid(&r)) return false;
-
-    struct tm tm = {
-        .tm_year = r.year - 1900,
-        .tm_mon  = r.month - 1,
-        .tm_mday = r.day,
-        .tm_hour = r.hour,
-        .tm_min  = r.minute,
-        .tm_sec  = r.second,
-        .tm_isdst = -1,
-    };
-    time_t epoch = mktime(&tm);            // interprets tm as local (TZ already set)
-    struct timeval tv = { .tv_sec = epoch, .tv_usec = 0 };
+    int64_t epoch;                         // RTC holds UTC (TZ already set for a
+    if (rtc_get_epoch(&epoch) != ESP_OK)   // one-time legacy local-time migration)
+        return false;
+    struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
     settimeofday(&tv, NULL);
     ESP_LOGI(TAG, "system clock seeded from RTC");
     return true;
@@ -373,6 +363,7 @@ void app_main(void)
         }
     }
 
+    alarm_init();   // before the web/MQTT surfaces, which can call snooze/dismiss
     netclock_start();
     mqttctrl_start();
     webui_start();
@@ -382,7 +373,6 @@ void app_main(void)
     apply_antipoison(&cfg);
     buttons_init(on_button);
     buzzer_init();
-    alarm_init();
 
     uint32_t tick = 0;
     uint8_t anim = 0;

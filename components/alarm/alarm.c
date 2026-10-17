@@ -4,6 +4,8 @@
 
 #include <stdio.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 
@@ -22,8 +24,15 @@ static uint8_t  s_snooze_min;        // snapshot for re-arming
 static int s_fired_key    = -1;
 static int s_dismiss_yday = -1;
 
+// alarm_tick() runs in the main loop, but snooze/dismiss also arrive from the
+// web UI (httpd task) and MQTT. One lock makes each state transition atomic:
+// without it a web Snooze could stop the buzzer, the tick's "keep it looping"
+// check restart it, and the state land on SNOOZED with the buzzer still on.
+static SemaphoreHandle_t s_lock;
+
 void alarm_init(void)
 {
+    if (!s_lock) s_lock = xSemaphoreCreateMutex();
     s_state = ST_IDLE;
 }
 
@@ -45,11 +54,14 @@ void alarm_tick(const struct tm *lt, const clock_settings_t *c, int64_t now_ms)
     int mins = lt->tm_hour * 60 + lt->tm_min;
     int key  = lt->tm_yday * 1440 + mins;
 
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+
     // A new day clears the "dismissed today" suppression.
     if (lt->tm_yday != s_dismiss_yday) s_dismiss_yday = -1;
 
     if (!c->alarm_enabled) {
         if (s_state != ST_IDLE) { buzzer_stop(); s_state = ST_IDLE; }
+        xSemaphoreGive(s_lock);
         return;
     }
 
@@ -75,6 +87,7 @@ void alarm_tick(const struct tm *lt, const clock_settings_t *c, int64_t now_ms)
             buzzer_play_rtttl(buzzer_builtin_rtttl(s_melody), true);
         break;
     }
+    xSemaphoreGive(s_lock);
 }
 
 bool alarm_is_ringing(void) { return s_state == ST_RINGING; }
@@ -90,20 +103,24 @@ bool alarm_is_armed(void)
 
 void alarm_snooze(void)
 {
-    if (s_state != ST_RINGING) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_state != ST_RINGING) { xSemaphoreGive(s_lock); return; }
     buzzer_stop();
     s_snooze_until_ms = (esp_timer_get_time() / 1000) + (int64_t)s_snooze_min * 60 * 1000;
     s_state = ST_SNOOZED;
+    xSemaphoreGive(s_lock);
     ESP_LOGI(TAG, "snoozed %u min", s_snooze_min);
 }
 
 bool alarm_dismiss(void)
 {
-    if (s_state == ST_IDLE) return false;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_state == ST_IDLE) { xSemaphoreGive(s_lock); return false; }
     buzzer_stop();
     s_state = ST_IDLE;
     // Suppress further rings until tomorrow (reuse the day we last fired on).
     s_dismiss_yday = s_fired_key / 1440;
+    xSemaphoreGive(s_lock);
     ESP_LOGI(TAG, "dismissed for today");
     return true;
 }
@@ -142,7 +159,10 @@ void alarm_status_str(const clock_settings_t *c, const struct tm *lt,
 
     if (s_state == ST_SNOOZED) {
         int64_t now = esp_timer_get_time() / 1000;
-        int rem = (int)((s_snooze_until_ms - now + 59999) / 60000);  // round up
+        xSemaphoreTake(s_lock, portMAX_DELAY);   // 64-bit read: don't tear it
+        int64_t until = s_snooze_until_ms;
+        xSemaphoreGive(s_lock);
+        int rem = (int)((until - now + 59999) / 60000);  // round up
         if (rem < 0) rem = 0;
         snprintf(out, n, "snoozed %dm", rem);
         return;
