@@ -31,6 +31,10 @@ pio device monitor      # serial @ 115200
   `REQUIRES`, or editing an `idf_component.yml`, do `rm -rf .pio/build/esp32dev`
   then rebuild — otherwise you get bogus "No dependencies" + `fatal error: X.h:
   No such file` and managed components don't fetch.
+- **Firmware version string is baked in at CMake configure time** (`git describe`,
+  shown as `fw` in `/api/state`). An incremental build after a commit keeps the
+  old `<hash>-dirty`; to flash an image that reports the new commit, commit first,
+  then `rm -rf .pio/build/esp32dev` and rebuild.
 - 4 MB flash, custom `partitions.csv`: **dual-OTA** — two ~1.875 MB app slots
   (`ota_0`/`ota_1`) + `otadata` + NVS + SPIFFS. App currently ~55% of a slot.
   Web-UI firmware upload (`POST /api/ota` in `webui.c`) streams a `.bin` into the
