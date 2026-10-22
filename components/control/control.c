@@ -171,7 +171,7 @@ bool control_apply_kv(const char *key, const char *val, int vlen)
     else if (K("date_sec"))     c.date_sec = (uint8_t)(atoi(val) % 60);
     else if (K("date_len")) { int l = atoi(val); c.date_len = (uint8_t)(l < 1 ? 1 : l > 8 ? 8 : l); }
     else if (K("tz")) { if (vlen > 0) { strncpy(c.tz, val, sizeof(c.tz) - 1); c.tz[sizeof(c.tz) - 1] = '\0'; } else ok = false; }
-    else if (K("shelly_time_daily")) c.shelly_time_daily = payload_on(val, vlen);
+    else if (K("shelly_time_daily")) c.shelly_time_daily = payload_on(val, vlen) ? SHELLY_TIME_DAILY_ON : 0;
     else if (K("night_start")) { int m = hhmm_to_min(val); if (m >= 0) c.night_start_min = m; else ok = false; }
     else if (K("night_end"))   { int m = hhmm_to_min(val); if (m >= 0) c.night_end_min = m; else ok = false; }
     else if (K("alarm_time"))  { int m = hhmm_to_min(val); if (m >= 0) { c.alarm_hour = m / 60; c.alarm_min = m % 60; } else ok = false; }
@@ -305,7 +305,7 @@ int control_state_json(char *buf, size_t n)
         rom0, rom1, ds, mac0, mac1, off0, off1,
         c.temp_sec[0], c.temp_len[0], c.temp_sec[1], c.temp_len[1],
         onoff(c.date_enabled), c.date_sec, c.date_len, c.tz,
-        onoff(c.shelly_time_daily),
+        onoff(c.shelly_time_daily == SHELLY_TIME_DAILY_ON),
         t0, t1, b0, b1,
         onoff(settings_is_night_now(&c, now, mins)), onoff(netclock_synced()), tbuf,
         ip, rssi, fw);

@@ -170,8 +170,14 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   - **Daily (`shelly_time_daily`) yields to NTP:** it is skipped while
     `netclock_last_sync_ms()` is under 24 h old. That was a deliberate choice
     ("NTP primary"), so flip it there if wanted.
-  - **The setting lives in the old reserved `bright_min` byte** (always 0 in stored
-    blobs), so no schema bump was needed. `bright_max` is still free.
+  - **The setting lives in the old reserved `bright_min` byte**, so no schema bump
+    was needed. Blobs saved before `bb61776` still hold its old default **20**, so
+    only the exact value 1 (`SHELLY_TIME_DAILY_ON`) means on. A truthiness check
+    switched the feature on unasked; that was caught on hardware. `bright_max` is
+    still free, but holds 255 in those same blobs.
+  - **Accuracy is about ±1 s.** The beacon stamp is whole seconds. Measured: 7
+    Shellies within 1.2 s of each other, median +0.55 s vs NTP. A manual sync on an
+    NTP-synced clock can make it slightly worse until the next SNTP update (1 h).
   - **Don't add a NimBLE init** (the standalone scanner in
     `~/Documents/BThome_Tests/esp32_shelly_time` is for apps without BLE). blescan
     owns NimBLE here.

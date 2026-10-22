@@ -146,7 +146,8 @@ everywhere instantly:
   - **Sync from Shelly now** button (web / HA / `shelly_sync` action).
   - Optional **daily** sync (`shelly_time_daily`), which yields to NTP: it only
     acts when SNTP hasn't synced for 24 h.
-  - Takes the median of the Shellies heard, compensated for burst lag (~0.1 s).
+  - Takes the median of the Shellies heard, compensated for their 0–3 s burst lag.
+    Expect about ±1 s accuracy, because the beacon carries whole seconds.
   - Debug panel / `GET /api/shellytime` lists each sender with its offset from
     the clock.
 - Manual brightness + night dimming with three selectable modes: a **fixed**

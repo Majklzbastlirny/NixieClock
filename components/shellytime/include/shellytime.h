@@ -14,7 +14,10 @@
 //  - blescan hands every manufacturer AD it sees to shellytime_feed() (NimBLE
 //    host task) -> a small per-sender table behind a mutex. For each new stamp
 //    we keep the uptime when we FIRST heard it, so a sync can add the elapsed
-//    time and lose the 0..3 s burst lag (~0.1 s left).
+//    time and lose the 0..3 s burst lag. The stamp itself is whole seconds, so
+//    expect about +-1 s overall (measured: 7 Shellies within 1.2 s of each
+//    other, median 0.55 s from an NTP-synced clock). Fine for a display, and
+//    one reason the daily sync stands aside while NTP works.
 //  - "Sync now" (web/MQTT/REST) only raises a request (shellytime_request_sync);
 //    the main loop's shellytime_tick() performs it: median of the fresh senders
 //    -> settimeofday + RTC + persisted epoch (same trio as /api/settime). TZ is

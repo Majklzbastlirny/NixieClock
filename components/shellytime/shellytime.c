@@ -261,7 +261,7 @@ void shellytime_tick(const clock_settings_t *c, int64_t now)
     }
 
     // Optional daily sync, yielding to NTP.
-    if (!c->shelly_time_daily || now < s_next_daily) return;
+    if (c->shelly_time_daily != SHELLY_TIME_DAILY_ON || now < s_next_daily) return;
     int64_t ntp = netclock_last_sync_ms();
     if (ntp && now - ntp < DAILY_MS) {
         s_next_daily = ntp + DAILY_MS;     // look again once NTP would be a day stale
@@ -286,6 +286,7 @@ size_t shellytime_status_json(char *buf, size_t n)
     if (n < 64 || !s_mtx) { if (n) buf[0] = '\0'; return 0; }
     clock_settings_t c;
     settings_get(&c);
+    bool daily = c.shelly_time_daily == SHELLY_TIME_DAILY_ON;
     int64_t now = now_ms(), wall = wall_ms();
     int64_t ntp = netclock_last_sync_ms();
     size_t o = 0;
@@ -302,9 +303,9 @@ size_t shellytime_status_json(char *buf, size_t n)
     o += snprintf(buf + o, n - o,
         "{\"daily\":\"%s\",\"pending\":%s,\"ntp_ago_s\":%lld,\"next_daily_s\":%lld,"
         "\"shelly_off_min\":%s,\"clock_off_min\":%d,\"last\":",
-        c.shelly_time_daily ? "ON" : "OFF", s_pending_since || s_req ? "true" : "false",
+        daily ? "ON" : "OFF", s_pending_since || s_req ? "true" : "false",
         ntp ? (long long)((now - ntp) / 1000) : -1LL,
-        c.shelly_time_daily ? (long long)((s_next_daily > now ? s_next_daily - now : 0) / 1000) : -1LL,
+        daily ? (long long)((s_next_daily > now ? s_next_daily - now : 0) / 1000) : -1LL,
         shoff, clock_offset_min((time_t)(wall / 1000)));
     if (s_last_ms && o < n)
         o += snprintf(buf + o, n - o, "{\"ago_s\":%lld,\"ok\":%s,\"msg\":\"%s\"}",

@@ -239,7 +239,7 @@ static void publish_state(void)
         in0, in1, rom0, rom1, roms, dsobj, mac0, mac1, off0, off1,
         c.temp_sec[0], c.temp_len[0], c.temp_sec[1], c.temp_len[1],
         onoff(c.date_enabled), c.date_sec, c.date_len, c.tz,
-        onoff(c.shelly_time_daily),
+        onoff(c.shelly_time_daily == SHELLY_TIME_DAILY_ON),
         t0, t1, bt0, bt1,
         onoff(settings_is_night_now(&c, now, mins)), onoff(netclock_synced()),
         onoff(rtc_present()), ip, rssi);
