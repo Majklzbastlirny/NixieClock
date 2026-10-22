@@ -59,7 +59,10 @@ typedef struct {
                                // auto_brightness byte — repurposed, same size, so
                                // no schema bump). +ve = stay bright longer into
                                // dusk/dawn twilight; -ve = dim earlier.
-    uint8_t  bright_min;       // (reserved / unused)
+    uint8_t  shelly_time_daily; // 1 = daily clock sync from the Shelly BLE time
+                               // beacon (shellytime; yields to NTP). Was the
+                               // reserved bright_min byte, always 0 in stored
+                               // blobs: repurposed, same size, no schema bump.
     uint8_t  bright_max;       // (reserved / unused)
     bool     blink_colon;      // blink the ':' at 1 Hz vs. steady on
     bool     h24;              // 24-hour format (false = 12-hour, blanks leading 0)

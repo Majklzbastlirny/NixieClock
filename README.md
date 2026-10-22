@@ -130,7 +130,7 @@ everywhere instantly:
   the `GET /api/set?k=…&v=…` alias, `POST|GET /api/action?a=<action>`,
   `GET|POST /api/settime?epoch=…&tz=…` (set the clock from a client),
   `GET /api/net`, `POST /api/netset`, `POST /api/ota` (firmware upload),
-  `GET /api/log`, `GET /api/blescan`.
+  `GET /api/log`, `GET /api/blescan`, `GET /api/shellytime`.
 
 ## Features
 
@@ -140,6 +140,15 @@ everywhere instantly:
   the SoftAP setup portal both send the device's time (and timezone), no NTP
   needed. The time is also saved to flash every few hours, so a power-lost RTC
   boots to an approximate time instead of 1970.
+- Optional **Shelly BLE time**: Gen2+ Shellies (fw 2.x) acting as BLE gateways
+  broadcast a time beacon (the one the Shelly BLU H&T Display syncs from), which
+  the existing BLE scan picks up.
+  - **Sync from Shelly now** button (web / HA / `shelly_sync` action).
+  - Optional **daily** sync (`shelly_time_daily`), which yields to NTP: it only
+    acts when SNTP hasn't synced for 24 h.
+  - Takes the median of the Shellies heard, compensated for burst lag (~0.1 s).
+  - Debug panel / `GET /api/shellytime` lists each sender with its offset from
+    the clock.
 - Manual brightness + night dimming with three selectable modes: a **fixed**
   clock-time window (default 20:30→06:00), **sunrise/sunset** computed on-device
   from a configurable lat/lon (fully offline — no network needed), or **ambient
@@ -185,6 +194,7 @@ components/
   webui/                   self-hosted web UI + REST/JSON API
   temps/                   temperature slots + DS18B20 (RMT 1-Wire)
   blescan/                 NimBLE passive scan → Shelly BLU H&T (BTHome v2)
+  shellytime/              Shelly BLE time beacon → optional clock sync
   bh1750/                  optional ambient-light sensor (I²C) for lux night mode
   weblog/                  esp_log → RAM ring buffer, read over /api/log
   buttons/                 multiplexed-button debounce + classification

@@ -13,12 +13,14 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 
 #define NTP_SERVER "pool.ntp.org"
 
 static const char *TAG = "netclock";
 static volatile bool s_synced = false;
+static volatile uint32_t s_last_sync_s = 0;   // uptime s of the last sync (32-bit: atomic)
 static bool s_sntp_started = false;
 
 // SNTP delivered a fresh time -> mirror it into the RTC.
@@ -26,6 +28,8 @@ static void on_time_sync(struct timeval *tv)
 {
     (void)tv;
     s_synced = true;
+    uint32_t up = (uint32_t)(esp_timer_get_time() / 1000000);
+    s_last_sync_s = up ? up : 1;   // 0 means "never"
 
     time_t now = time(NULL);
     if (rtc_set_epoch((int64_t)now) == ESP_OK)
@@ -98,4 +102,9 @@ void netclock_start(void)
 bool netclock_synced(void)
 {
     return s_synced;
+}
+
+int64_t netclock_last_sync_ms(void)
+{
+    return (int64_t)s_last_sync_s * 1000;
 }

@@ -87,6 +87,13 @@ tapping button 5). From there you can set:
 - **Temperature** — turn it on, how many decimals, and which sensor feeds each
   of the two slots.
 - **Network** — change WiFi / smart-home settings later without the PIN dance.
+- **Clock & time** — timezone, setting the clock from your phone, and the
+  optional **Shelly BLE time**. If you have newer Shelly devices (Gen2 or later, firmware
+  2.x, used as a Bluetooth gateway for Shelly BLU sensors), they broadcast the
+  current time over Bluetooth. **Sync from Shelly now** takes it straight away. **Daily sync from
+  Shelly** does it once a day, but only when internet time (NTP) hasn't worked for
+  a day, so NTP always stays the main source. Below the buttons you can see what
+  happened, and which Shellies the clock hears and how far their time is from the clock's.
 
 Changes apply instantly and stay in sync everywhere (web page, Home Assistant,
 buttons all share the same settings).
@@ -165,6 +172,7 @@ Served by the clock itself at `http://<clock-ip>/`.
 | `POST /api/ota` | Firmware update: raw `firmware.bin` in the body |
 | `GET /api/log` | Recent device log (RAM buffer, plain text) |
 | `GET /api/blescan` | Nearby Shelly BLU (BTHome) sensors as JSON |
+| `GET /api/shellytime` | Shelly BLE time status: last sync result, NTP / daily state, UTC offset Shellies vs. clock, every time-beacon sender with RSSI, age and `delta_ms` (its time minus the clock's) |
 
 **Settings keys** (`/api/set?k=…`, value in body):
 
@@ -204,11 +212,16 @@ temp2_sec / temp2_len  interlude for temp2  (default 55/2)
 date_enabled          ON / OFF      (date interlude: DDMM : DoW)
 date_sec / date_len   date interlude second + length (default 57/2)
 tz                    POSIX timezone, e.g. CET-1CEST,M3.5.0,M10.5.0/3
+shelly_time_daily     ON / OFF      (daily clock sync from the Shelly BLE time
+                                     beacon: ~1 min after boot, then every 24 h,
+                                     skipped while NTP synced within 24 h)
 ```
 
 **Actions** (`/api/action?a=…`):
 
 ```
+shelly_sync           set the clock from the Shelly BLE time beacon now (waits
+                      up to 25 s for one; result in /api/shellytime and the log)
 antipoison_now        run the anti-poison cycle now
 alarm_snooze          snooze a ringing alarm
 alarm_dismiss         dismiss the alarm until tomorrow
@@ -250,6 +263,10 @@ state payload via a templated topic.
 Destructive commands are guarded: `factory_reset` requires the literal token
 `RESET` in the payload, so a stray or retained message can't wipe the device.
 
+Shelly BLE time shows up as a **Daily Shelly time sync** switch
+(`cmd/shelly_time_daily`) and a **Sync time from Shelly** button
+(`cmd/shelly_sync`, any payload).
+
 ### Credentials & provisioning
 
 Credentials live in NVS. `components/common/include/secrets.h` (gitignored) is a
@@ -284,7 +301,7 @@ After adding/removing a component or editing a `REQUIRES`/`idf_component.yml`,
 clear the stale CMake cache: `rm -rf .pio/build/esp32dev` then rebuild.
 
 Flash layout: 4 MB, custom `partitions.csv` — dual-OTA (two ~1.875 MB app slots +
-`otadata` + NVS + SPIFFS). App is ~55 % of a slot.
+`otadata` + NVS + SPIFFS). App is ~67 % of a slot.
 
 **OTA updates:** after the first serial flash, push new builds over WiFi from the
 web UI's **Firmware** section (pick `.pio/build/esp32dev/firmware.bin` → Upload). It
@@ -386,6 +403,13 @@ Otevřete `http://<ip-hodin>/` v jakémkoli prohlížeči ve stejné síti (IP z
 - **Teplotu** — zapnutí, počet desetinných míst a které čidlo napájí každý ze
   dvou slotů.
 - **Síť** — změnit WiFi / chytrou domácnost později bez tancování s PINem.
+- **Hodiny a čas** — časová zóna, nastavení času z telefonu a volitelný
+  **čas ze Shelly přes BLE**. Novější zařízení Shelly (Gen2 a novější, firmware
+  2.x, používaná jako Bluetooth brána pro čidla Shelly BLU) vysílají aktuální čas
+  přes Bluetooth. **Sync from Shelly now** ho převezme hned. **Daily sync from
+  Shelly** to dělá jednou denně, ale jen když čas z internetu (NTP) den nefungoval,
+  takže NTP zůstává hlavním zdrojem. Pod tlačítky je vidět, jak synchronizace
+  dopadla, které Shelly hodiny slyší a o kolik se jejich čas liší od času hodin.
 
 Změny se projeví okamžitě a zůstávají všude synchronizované (web, Home Assistant
 i tlačítka sdílí stejné nastavení).
@@ -466,6 +490,7 @@ Hostují samy hodiny na `http://<ip-hodin>/`.
 | `POST /api/ota` | Aktualizace firmwaru: `firmware.bin` v těle |
 | `GET /api/log` | Nedávný log zařízení (RAM buffer, text) |
 | `GET /api/blescan` | Blízká čidla Shelly BLU (BTHome) jako JSON |
+| `GET /api/shellytime` | Stav času ze Shelly přes BLE: výsledek poslední synchronizace, stav NTP / denní synchronizace, posun od UTC u Shelly a u hodin, všichni vysílači časového majáku s RSSI, stářím a `delta_ms` (jejich čas mínus čas hodin) |
 
 **Klíče nastavení** (`/api/set?k=…`, hodnota v těle):
 
@@ -505,11 +530,16 @@ temp2_sec / temp2_len  vsuvka pro temp2  (výchozí 55/2)
 date_enabled          ON / OFF      (vsuvka s datem: DDMM : DoW)
 date_sec / date_len   sekunda + délka vsuvky s datem (výchozí 57/2)
 tz                    POSIX časová zóna, např. CET-1CEST,M3.5.0,M10.5.0/3
+shelly_time_daily     ON / OFF      (denní synchronizace času z BLE majáku Shelly:
+                                     ~1 min po startu, pak každých 24 h; vynechá
+                                     se, pokud NTP synchronizoval během 24 h)
 ```
 
 **Akce** (`/api/action?a=…`):
 
 ```
+shelly_sync           nastavit čas hned z BLE majáku Shelly (čeká na něj až
+                      25 s; výsledek v /api/shellytime a v logu)
 antipoison_now        spustit anti-poison cyklus hned
 alarm_snooze          odložit zvonící budík
 alarm_dismiss         vypnout budík do zítřka
@@ -551,6 +581,10 @@ stavovém payloadu přes šablonovaný topic.
 Destruktivní příkazy jsou pojištěné: `factory_reset` vyžaduje v payloadu doslovný
 token `RESET`, aby zatoulaná nebo retained zpráva nemohla zařízení smazat.
 
+Čas ze Shelly přes BLE se objeví jako přepínač **Daily Shelly time sync**
+(`cmd/shelly_time_daily`) a tlačítko **Sync time from Shelly**
+(`cmd/shelly_sync`, libovolný payload).
+
 ### Údaje a provisioning
 
 Přihlašovací údaje jsou v NVS. `components/common/include/secrets.h` (gitignored)
@@ -585,7 +619,7 @@ Po přidání/odebrání komponenty nebo úpravě `REQUIRES`/`idf_component.yml`
 starou CMake cache: `rm -rf .pio/build/esp32dev` a sestavte znovu.
 
 Rozložení flash: 4 MB, vlastní `partitions.csv` — dual-OTA (dva ~1,875 MB app
-sloty + `otadata` + NVS + SPIFFS). App zabírá ~55 % slotu.
+sloty + `otadata` + NVS + SPIFFS). App zabírá ~67 % slotu.
 
 **OTA aktualizace:** po prvním flashnutí přes kabel nahrávejte nové buildy přes WiFi
 ze sekce **Firmware** ve webovém UI (vyberte `.pio/build/esp32dev/firmware.bin` →

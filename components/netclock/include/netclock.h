@@ -10,9 +10,14 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // Kick off WiFi + SNTP in the background. Safe to call once at boot.
 void netclock_start(void);
 
 // True once we've had at least one successful SNTP sync this power cycle.
 bool netclock_synced(void);
+
+// Uptime (ms, esp_timer) of the last successful SNTP sync; 0 = none yet. Lets
+// shellytime's daily sync stand aside while NTP is working.
+int64_t netclock_last_sync_ms(void);

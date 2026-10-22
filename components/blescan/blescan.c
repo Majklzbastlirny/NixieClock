@@ -9,6 +9,7 @@
 // instead of a lambda; pushes into temps instead of a shared app struct).
 #include "blescan.h"
 #include "temps.h"
+#include "shellytime.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -205,6 +206,10 @@ static void parse_adv(const uint8_t *mac, int8_t rssi, const uint8_t *data, uint
         else if (type == 0x16 && fdlen >= 2 && (fd[0] | (fd[1] << 8)) == 0xFCD2) {
             sd = fd + 2; sdlen = fdlen - 2;
         }
+        // Manufacturer data: maybe a Shelly gateway's time beacon (company 0x0BA9).
+        // Those carry no BTHome service data, so this is independent of `sd`, and
+        // the senders stay out of the s_dev picker list.
+        else if (type == 0xFF) shellytime_feed(mac, rssi, fd, fdlen);
         i += flen + 1;
     }
     if (sd) bthome_handle(mac, rssi, sd, sdlen, name, namelen);

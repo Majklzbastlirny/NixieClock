@@ -36,7 +36,7 @@ pio device monitor      # serial @ 115200
   old `<hash>-dirty`; to flash an image that reports the new commit, commit first,
   then `rm -rf .pio/build/esp32dev` and rebuild.
 - 4 MB flash, custom `partitions.csv`: **dual-OTA** — two ~1.875 MB app slots
-  (`ota_0`/`ota_1`) + `otadata` + NVS + SPIFFS. App currently ~55% of a slot.
+  (`ota_0`/`ota_1`) + `otadata` + NVS + SPIFFS. App currently ~67% of a slot (1.31 MB).
   Web-UI firmware upload (`POST /api/ota` in `webui.c`) streams a `.bin` into the
   spare slot via `esp_ota_*` and reboots into it; NVS (settings + creds, fixed at
   0x9000) is untouched. First flash after the repartition must still be over
@@ -80,7 +80,9 @@ decodes the button event 0x3A → the web picker highlights the pressed sensor
 H-res mode — `bh1750_present()`/`bh1750_read_lux()` gate + feed the `lux` night
 mode), `weblog` (esp_log→RAM ring buffer, read back
 over `GET /api/log` + a Logs panel — the assembled clock has no serial, so this
-is how you read its logs; `weblog_init()` runs first in `app_main`).
+is how you read its logs; `weblog_init()` runs first in `app_main`),
+`shellytime` (optional clock source from the BLE time beacon Gen2+ Shelly
+gateways broadcast; see the Shelly BLE time note below).
 
 **Night dimming has three modes** (`night_mode`: `fixed`/`sun`/`lux`, default
 `sun`), all resolved in `settings_brightness_for(s, utc, mins, lux)` — the single
@@ -153,6 +155,27 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   display flashes. The pip/blink phase keys off the **wall-clock sub-second**
   (`gettimeofday`'s `tv_usec`, var `subms`), NOT boot-relative `now_ms` — so the
   colon turns on exactly on the second edge. Don't revert to `now_ms % 1000`.
+- **Shelly BLE time (`shellytime`):** Gen2+ Shellies on fw 2.x that host BTHome
+  devices or relay BLU devices to the cloud broadcast a time beacon:
+  manufacturer AD `A9 0B 0D <u32 unix><i32 std_off><u32 dst_start><u32 dst_end><i32 dst_shift>`.
+  The company id is **0x0BA9**. Shelly's API docs say 0xFCD2, which is wrong, and the
+  BLU display ignores 0xFCD2. The firmware is wired like this:
+  - **Feed:** `blescan`'s `parse_adv` hands every type-0xFF AD to `shellytime_feed()`,
+    **outside** the BTHome `if (sd)` branch. Gateways carry no BTHome data, and the
+    senders stay out of the `s_dev` picker list.
+  - **Sync:** web/MQTT/REST `shelly_sync` only raises a flag. `shellytime_tick()` in
+    the main loop applies it with the `/api/settime` trio (settimeofday + RTC +
+    persisted epoch) and never touches TZ. The applied time is the median of fresh
+    senders, each stamp + time since *first* heard, which removes the 0..3 s burst lag.
+  - **Daily (`shelly_time_daily`) yields to NTP:** it is skipped while
+    `netclock_last_sync_ms()` is under 24 h old. That was a deliberate choice
+    ("NTP primary"), so flip it there if wanted.
+  - **The setting lives in the old reserved `bright_min` byte** (always 0 in stored
+    blobs), so no schema bump was needed. `bright_max` is still free.
+  - **Don't add a NimBLE init** (the standalone scanner in
+    `~/Documents/BThome_Tests/esp32_shelly_time` is for apps without BLE). blescan
+    owns NimBLE here.
+  - **URI handlers:** 14 of `max_uri_handlers = 16` are now used.
 - **Colon blinks during OTA** (`PIN_COLON` is a dedicated GPIO, not multiplexed).
   While `s_hold_off` (OTA), the nixie ISR itself drives `PIN_COLON` from a frame
   counter (~6 Hz) — because the httpd worker is stalled in `esp_ota_write` and

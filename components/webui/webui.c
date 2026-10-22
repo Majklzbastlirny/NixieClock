@@ -8,6 +8,7 @@
 #include "nixie.h"
 #include "weblog.h"
 #include "blescan.h"
+#include "shellytime.h"
 #include "settings.h"
 #include "rtc_clock.h"
 
@@ -146,6 +147,12 @@ static const char PAGE[] =
 "<label>This device <span id='phtime' class='s'>--:--:--</span></label>"
 "<label><span id='phzone' class='m'></span>"
 "<button onclick='settime()'>Set clock from this device</button></label>"
+"<div class='s' style='margin:.6rem 0 .2rem'>Shelly BLE time &mdash; the time beacon nearby "
+"Shelly gateways broadcast (what the BLU H&amp;T Display syncs from). NTP stays primary.</div>"
+"<label>Daily sync from Shelly <input type='checkbox' id='shelly_time_daily' onchange='setck(this)'></label>"
+"<label><span class='m'>Once a day, and only while NTP hasn't synced for 24 h.</span>"
+"<button onclick='shsync()'>Sync from Shelly now</button></label>"
+"<div id='shtime' class='s' style='white-space:pre-line'>...</div>"
 "</fieldset>"
 
 "<h2>Firmware</h2><fieldset>"
@@ -241,6 +248,22 @@ static const char PAGE[] =
 "post('/api/set?k=temp'+n+'_source','shelly').then(function(){post('/api/set?k=temp'+n+'_mac',mac);});}"
 "function shun(n){post('/api/set?k=temp'+n+'_source','none').then(function(){post('/api/set?k=temp'+n+'_mac','');});}"
 "function loadshelly(){fetch('/api/blescan').then(r=>r.json()).then(shlist);}"
+// Shelly BLE time panel: last result, NTP/daily state, zone check, per-sender delta.
+"function dur(s){return s<90?s+' s':s<5400?Math.round(s/60)+' min':Math.floor(s/3600)+' h '+Math.round(s%3600/60)+' min';}"
+"function shtime(d){var t=[];"
+"if(d.pending)t.push('waiting for a Shelly time beacon...');"
+"t.push(d.last?((d.last.ok?'\\u2713 ':'\\u2717 ')+d.last.msg+' ('+dur(d.last.ago_s)+' ago)'):'no Shelly sync yet');"
+"t.push('NTP: '+(d.ntp_ago_s<0?'not synced this boot':'synced '+dur(d.ntp_ago_s)+' ago')"
+"+(d.daily=='ON'?' \\u00b7 daily check in '+dur(d.next_daily_s):''));"
+"if(d.shelly_off_min!=null)t.push('UTC offset: Shellies '+(d.shelly_off_min>=0?'+':'')+d.shelly_off_min+' min, clock '"
+"+(d.clock_off_min>=0?'+':'')+d.clock_off_min+' min'+(d.shelly_off_min!=d.clock_off_min?' \\u26a0 TZ differs':''));"
+"var a=d.senders||[];if(!a.length)t.push('no Shelly time beacons heard (needs a Gen2+ Shelly, fw 2.x, acting as BLE gateway)');"
+"for(var i=0;i<a.length;i++){var x=a[i];t.push(x.mac+'  '+x.rssi+' dBm  '+x.age_s+' s ago  \\u0394 '"
+"+(x.delta_ms>=0?'+':'')+x.delta_ms+' ms vs clock'+(x.clean?'':' (mid-burst)'));}"
+"document.getElementById('shtime').textContent=t.join('\\n');}"
+"function loadshtime(){fetch('/api/shellytime').then(r=>r.json()).then(shtime);}"
+"function shsync(){act('shelly_sync');document.getElementById('shtime').textContent='syncing...';"
+"setTimeout(loadshtime,800);setTimeout(loadshtime,3000);}"
 "function refresh(){fetch('/api/state').then(r=>r.json()).then(render)}"
 "function loadnet(){fetch('/api/net').then(r=>r.json()).then(function(n){"
 "document.getElementById('n_ssid').value=n.wifi_ssid;document.getElementById('n_mhost').value=n.mqtt_host;"
@@ -265,7 +288,8 @@ static const char PAGE[] =
 "var logt=null;"
 "function logtick(){if(document.getElementById('logauto').checked){if(!logt)logt=setInterval(loadlog,3000);}"
 "else{clearInterval(logt);logt=null;}}"
-"refresh();loadnet();loadlog();loadshelly();setInterval(refresh,3000);setInterval(loadshelly,3000);"
+"refresh();loadnet();loadlog();loadshelly();loadshtime();setInterval(refresh,3000);setInterval(loadshelly,3000);"
+"setInterval(loadshtime,3000);"
 "</script></body></html>";
 
 static esp_err_t root_get(httpd_req_t *req)
@@ -365,6 +389,7 @@ static bool do_action(const char *a, const char *val, int vlen)
     else if (!strcmp(a, "alarm_dismiss")) alarm_dismiss();
     else if (!strcmp(a, "alarm_test"))   alarm_preview_melody();
     else if (!strcmp(a, "mqtt_test"))    mqttctrl_reconnect();
+    else if (!strcmp(a, "shelly_sync"))  shellytime_request_sync();   // main loop applies it
     else if (!strcmp(a, "temp1_input") && vlen) temps_set_mqtt(0, parse_centi(val));
     else if (!strcmp(a, "temp2_input") && vlen) temps_set_mqtt(1, parse_centi(val));
     else ESP_LOGW(TAG, "unknown action %s", a);
@@ -624,6 +649,21 @@ static esp_err_t blescan_get(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Shelly BLE time status for the Clock & time panel (heap buffer, off the stack).
+static esp_err_t shellytime_get(httpd_req_t *req)
+{
+    char *buf = malloc(1536);
+    if (!buf) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
+        return ESP_OK;
+    }
+    size_t len = shellytime_status_json(buf, 1536);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, buf, len);
+    free(buf);
+    return ESP_OK;
+}
+
 void webui_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
@@ -656,6 +696,7 @@ void webui_start(void)
         { .uri = "/api/ota",    .method = HTTP_POST, .handler = ota_post },
         { .uri = "/api/log",    .method = HTTP_GET,  .handler = log_get },
         { .uri = "/api/blescan",.method = HTTP_GET,  .handler = blescan_get },
+        { .uri = "/api/shellytime", .method = HTTP_GET, .handler = shellytime_get },
     };
     for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++)
         httpd_register_uri_handler(srv, &routes[i]);

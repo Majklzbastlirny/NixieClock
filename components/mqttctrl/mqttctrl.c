@@ -8,6 +8,7 @@
 #include "control.h"
 #include "netcfg.h"
 #include "bh1750.h"
+#include "shellytime.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -221,6 +222,7 @@ static void publish_state(void)
         "\"temp1_offset\":%s,\"temp2_offset\":%s,"
         "\"temp1_sec\":%u,\"temp1_len\":%u,\"temp2_sec\":%u,\"temp2_len\":%u,"
         "\"date_enabled\":\"%s\",\"date_sec\":%u,\"date_len\":%u,\"tz\":\"%s\","
+        "\"shelly_time_daily\":\"%s\","
         "\"temp1\":\"%s\",\"temp2\":\"%s\","
         "\"temp1_batt\":\"%s\",\"temp2_batt\":\"%s\","
         "\"night_active\":\"%s\",\"synced\":\"%s\",\"rtc\":\"%s\","
@@ -237,6 +239,7 @@ static void publish_state(void)
         in0, in1, rom0, rom1, roms, dsobj, mac0, mac1, off0, off1,
         c.temp_sec[0], c.temp_len[0], c.temp_sec[1], c.temp_len[1],
         onoff(c.date_enabled), c.date_sec, c.date_len, c.tz,
+        onoff(c.shelly_time_daily),
         t0, t1, bt0, bt1,
         onoff(settings_is_night_now(&c, now, mins)), onoff(netclock_synced()),
         onoff(rtc_present()), ip, rssi);
@@ -476,6 +479,13 @@ static void publish_discovery(void)
         ",\"cmd_t\":\"%s/tz\",\"entity_category\":\"config\"", s_cmd);
     disc("text", "tz", "Timezone (POSIX)", "tz", ex);
 
+    // Shelly BLE time beacon: optional daily sync (yields to NTP) + sync-now button.
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/shelly_time_daily\",\"entity_category\":\"config\"", s_cmd);
+    disc("switch", "shelly_time_daily", "Daily Shelly time sync", "shelly_time_daily", ex);
+    snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/shelly_sync\",\"entity_category\":\"config\"", s_cmd);
+    disc_cmd("button", "shelly_sync", "Sync time from Shelly", ex);
+
     // Discovered DS18B20 ROM addresses on the bus (read-only, comma-separated).
     disc("sensor", "ds_roms", "DS18B20 sensors", "ds_roms", "");
 
@@ -551,6 +561,7 @@ static void handle_command(const char *topic, int tlen, const char *data, int dl
     if (ISN("alarm_snooze_now")) { alarm_snooze();  publish_state(); return; }
     if (ISN("alarm_dismiss"))    { alarm_dismiss(); publish_state(); return; }
     if (ISN("alarm_test"))       { alarm_preview_melody(); return; }
+    if (ISN("shelly_sync"))      { shellytime_request_sync(); ESP_LOGI(TAG, "cmd shelly_sync"); return; }
     if (ISN("factory_reset")) {
         // Require the exact token so an accidental/empty payload can't wipe NVS.
         if (vl == 5 && strncmp(val, "RESET", 5) == 0) {

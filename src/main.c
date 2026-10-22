@@ -30,6 +30,7 @@
 #include "netcfg.h"
 #include "weblog.h"
 #include "blescan.h"
+#include "shellytime.h"
 #include "bh1750.h"
 
 #include <time.h>
@@ -364,6 +365,7 @@ void app_main(void)
     }
 
     alarm_init();   // before the web/MQTT surfaces, which can call snooze/dismiss
+    shellytime_init();   // before blescan feeds it and web/MQTT query it
     netclock_start();
     mqttctrl_start();
     webui_start();
@@ -402,6 +404,10 @@ void app_main(void)
             }
             last_level = -1;             // force a re-apply of brightness
         }
+
+        // Shelly BLE time: a requested "sync now" and the optional daily sync. Runs
+        // before the wall clock is read below, so a correction shows this frame.
+        shellytime_tick(&cfg, now_ms);
 
         // Refresh the ambient-light reading about once a second (the BH1750
         // integrates ~120 ms; no point polling it every 50 ms loop).
