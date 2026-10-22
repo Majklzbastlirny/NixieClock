@@ -68,11 +68,13 @@ static volatile int64_t s_confirm_until;
 static volatile int64_t s_show_ip_until;
 static uint8_t s_ip_octet[4];   // captured at press time
 
-// Push the anti-poison period/duration from settings into the routine.
+// Push the anti-poison settings into the routine.
 static void apply_antipoison(const clock_settings_t *c)
 {
     antipoison_set_period_s(c->ap_enabled ? c->ap_period_s : 0);
     antipoison_set_duration_ms(c->ap_duration_ms);
+    antipoison_set_step_ms(c->ap_step_ms);
+    antipoison_set_anim(c->ap_anim);
 }
 
 // Fill the framebuffer with HH MM SS, left to right (idx 0 = hours-tens).
@@ -248,6 +250,41 @@ static interlude_t interlude_for_second(const clock_settings_t *c, int sec)
     }
     if (c->date_enabled && in_window(sec, c->date_sec, c->date_len)) return ILD_DATE;
     return ILD_NONE;
+}
+
+// "Pause for interludes": may an automatic scrub start at second `sec` of the
+// minute? It may if the seconds it will cover are free of temp/date interludes
+// (a temp slot counts only when it has a source). If no gap in the minute is
+// long enough, it starts at the beginning of the longest gap instead, so it is
+// never held back for more than a minute.
+static bool scrub_may_start(const clock_settings_t *c, int sec)
+{
+    if (!c->ap_pause_ild) return true;
+    bool busy[60];
+    int nbusy = 0;
+    for (int s = 0; s < 60; s++) {
+        busy[s] = (c->temp_enabled && c->temp_src[0] != TEMP_SRC_NONE &&
+                   in_window(s, c->temp_sec[0], c->temp_len[0])) ||
+                  (c->temp_enabled && c->temp_src[1] != TEMP_SRC_NONE &&
+                   in_window(s, c->temp_sec[1], c->temp_len[1])) ||
+                  (c->date_enabled && in_window(s, c->date_sec, c->date_len));
+        nbusy += busy[s];
+    }
+    if (nbusy == 0 || nbusy == 60) return true;
+
+    // Starting part-way into `sec`, a run of D seconds touches seconds sec..sec+D.
+    int need = (int)((c->ap_duration_ms + 999) / 1000) + 1;
+    int best_len = 0, best_start = 0;      // longest free stretch (wraps the minute)
+    for (int s = 0; s < 60; s++) {
+        if (busy[s] || !busy[(s + 59) % 60]) continue;   // s = first free second
+        int len = 0;
+        while (len < 60 && !busy[(s + len) % 60]) len++;
+        if (len > best_len) { best_len = len; best_start = s; }
+    }
+    if (need > best_len) return sec == best_start;
+    for (int i = 0; i < need; i++)
+        if (busy[(sec + i) % 60]) return false;
+    return true;
 }
 
 // Adjust the persisted manual brightness by `delta`, clamped to 0..255.
@@ -441,7 +478,7 @@ void app_main(void)
         // slot-machine already exercises every cathode). A ringing alarm takes
         // priority over a scrub. When anti-poison runs it owns the display and
         // its own brightness, so skip the normal draw.
-        if (valid && !ringing && antipoison_tick(now_ms)) {
+        if (valid && !ringing && antipoison_tick(now_ms, scrub_may_start(&cfg, lt.tm_sec))) {
             // routine drew this frame; it restores brightness when it ends
             last_level = -1;
         } else {

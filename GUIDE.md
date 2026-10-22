@@ -81,6 +81,14 @@ Open `http://<clock-ip>/` in any browser on the same network (find the IP by
 tapping button 5). From there you can set:
 
 - Brightness, and a **night schedule** (dimmer between, e.g., 20:30 and 06:00).
+- **Anti-poisoning** — the "scrub" that runs every digit on every tube so rarely
+  used digits don't fade. You can set how often (minutes), how long (seconds), how
+  fast (ms per step) and which **animation** to use: cascade, sync, random, reels,
+  wave, or mix, which uses a different one each time. **Pause for interludes**
+  starts a scheduled scrub only where it fits between the temperature/date
+  readouts, so it never hides them; it waits a minute at most. The **Scrub**
+  button runs one straight away, which doubles as a preview, and **Next scrub**
+  shows when the next one is due.
 - **Alarm** — time, which days of the week, melody, snooze length. There's a
   **Play** button to preview the selected melody, and a **Status** line showing
   whether it's armed, snoozed, or off until the next ring.
@@ -192,6 +200,12 @@ sun_offset            -120..120 min (sun mode twilight; +ve = dim later after
 blink_colon           ON / OFF
 h24                   ON / OFF      (off = 12-hour, blanks leading zero)
 ap_enabled            ON / OFF      (anti-poison enabled)
+ap_period             1..1440       (minutes between scheduled scrubs, default 10)
+ap_duration           1..120        (seconds per scrub, default 12)
+ap_speed              20..1000      (ms per animation step, default 120)
+ap_anim               cascade / sync / random / reels / wave / mix
+ap_pause              ON / OFF      (scheduled scrubs start only where they fit
+                                     between the temp/date interludes; default OFF)
 alarm_enabled         ON / OFF
 alarm_time            HH:MM
 alarm_melody          0..7          (see melody table)
@@ -397,6 +411,14 @@ Otevřete `http://<ip-hodin>/` v jakémkoli prohlížeči ve stejné síti (IP z
 ťuknutím na tlačítko 5). Můžete tam nastavit:
 
 - Jas a **noční plán** (ztlumení např. mezi 20:30 a 06:00).
+- **Anti-poisoning** — „čištění“, které projede všechny číslice na všech
+  tubicích, aby málo používané číslice nevybledly. Nastavíte, jak často (minuty),
+  jak dlouho (sekundy), jak rychle (ms na krok) a jakou **animací**: cascade,
+  sync, random, reels, wave, nebo mix, která pokaždé použije jinou.
+  **Pause for interludes** spustí plánované čištění jen tam, kde se vejde mezi
+  zobrazení teploty a data, takže je nikdy nepřekryje; čeká nanejvýš minutu.
+  Tlačítko **Scrub** spustí čištění hned (poslouží i jako náhled) a **Next scrub**
+  ukazuje, kdy proběhne další.
 - **Budík** — čas, dny v týdnu, melodii, délku odložení. Je tu tlačítko **Play**
   pro přehrání vybrané melodie a řádek **Status**, který ukazuje, jestli je budík
   natažený, odložený, nebo vypnutý do dalšího zvonění.
@@ -510,6 +532,12 @@ sun_offset            -120..120 min (soumrak; kladné = ztlumí později po záp
 blink_colon           ON / OFF
 h24                   ON / OFF      (off = 12hodinový, skryje úvodní nulu)
 ap_enabled            ON / OFF      (anti-poison zapnut)
+ap_period             1..1440       (minuty mezi plánovanými čištěními, výchozí 10)
+ap_duration           1..120        (sekundy na jedno čištění, výchozí 12)
+ap_speed              20..1000      (ms na krok animace, výchozí 120)
+ap_anim               cascade / sync / random / reels / wave / mix
+ap_pause              ON / OFF      (plánované čištění začne jen tam, kde se vejde
+                                     mezi vsuvky teploty/data; výchozí OFF)
 alarm_enabled         ON / OFF
 alarm_time            HH:MM
 alarm_melody          0..7          (viz tabulka melodií)

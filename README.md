@@ -120,7 +120,8 @@ Bonus combo: **hold brightness + and − together (~2 s)** toggles the alarm on/
 All three share one settings store, so changes from any surface are reflected
 everywhere instantly:
 
-- **Web UI** — `http://<clock-ip>/` : brightness, night schedule, anti-poison,
+- **Web UI** — `http://<clock-ip>/` : brightness, night schedule, anti-poison
+  (interval, length, speed, 5 animations + mix, pause-for-interludes),
   alarm (incl. day-of-week + melody + snooze), temperature slots/decimals, and
   network config. Tap button 5 to see the IP on the tubes.
 - **MQTT + Home Assistant** — auto-discovers as a *Nixie Clock* device

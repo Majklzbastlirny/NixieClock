@@ -1,5 +1,5 @@
 idf_component_register(
     SRCS "antipoison.c"
     INCLUDE_DIRS "include"
-    REQUIRES nixie
+    REQUIRES nixie settings esp_timer esp_hw_support
 )

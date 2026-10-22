@@ -212,6 +212,7 @@ static void publish_state(void)
         "\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
         "\"blink_colon\":\"%s\",\"h24\":\"%s\",\"ap_enabled\":\"%s\","
+        "\"ap_period\":%lu,\"ap_duration\":%lu,\"ap_speed\":%u,\"ap_anim\":\"%s\",\"ap_pause\":\"%s\","
         "\"alarm_enabled\":\"%s\",\"alarm_time\":\"%02u:%02u\",\"alarm_melody\":%u,"
         "\"alarm_snooze\":%u,\"alarm_ringing\":\"%s\",\"alarm_status\":\"%s\","
         "\"temp_enabled\":\"%s\","
@@ -232,6 +233,8 @@ static void publish_state(void)
         c.night_start_min / 60, c.night_start_min % 60,
         c.night_end_min / 60, c.night_end_min % 60,
         onoff(c.blink_colon), onoff(c.h24), onoff(c.ap_enabled),
+        (unsigned long)(c.ap_period_s / 60), (unsigned long)(c.ap_duration_ms / 1000),
+        c.ap_step_ms, antipoison_anim_name(c.ap_anim), onoff(c.ap_pause_ild),
         onoff(c.alarm_enabled), c.alarm_hour, c.alarm_min, c.alarm_melody,
         c.alarm_snooze_min, onoff(alarm_is_ringing()), alstat,
         onoff(c.temp_enabled),
@@ -356,6 +359,25 @@ static void publish_discovery(void)
     disc("switch", "ap_enabled", "Anti-poisoning", "ap_enabled", ex);
     snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/antipoison_now\"", s_cmd);
     disc_cmd("button", "antipoison_now", "Anti-poison now", ex);
+    // Scrub tuning: interval, length, speed, animation, pause-for-interludes.
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/ap_period\",\"min\":1,\"max\":1440,\"step\":1,\"unit_of_meas\":\"min\","
+        "\"entity_category\":\"config\"", s_cmd);
+    disc("number", "ap_period", "Anti-poison interval", "ap_period", ex);
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/ap_duration\",\"min\":1,\"max\":120,\"step\":1,\"unit_of_meas\":\"s\","
+        "\"entity_category\":\"config\"", s_cmd);
+    disc("number", "ap_duration", "Anti-poison length", "ap_duration", ex);
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/ap_speed\",\"min\":20,\"max\":1000,\"step\":10,\"unit_of_meas\":\"ms\","
+        "\"entity_category\":\"config\"", s_cmd);
+    disc("number", "ap_speed", "Anti-poison step time", "ap_speed", ex);
+    snprintf(ex, sizeof(ex),
+        ",\"cmd_t\":\"%s/ap_anim\",\"options\":[\"cascade\",\"sync\",\"random\",\"reels\",\"wave\",\"mix\"],"
+        "\"entity_category\":\"config\"", s_cmd);
+    disc("select", "ap_anim", "Anti-poison animation", "ap_anim", ex);
+    snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/ap_pause\",\"entity_category\":\"config\"", s_cmd);
+    disc("switch", "ap_pause", "Anti-poison: pause for interludes", "ap_pause", ex);
 
     // Alarm: enable (switch), time (text), melody (number)
     snprintf(ex, sizeof(ex), ",\"cmd_t\":\"%s/alarm_enabled\"", s_cmd);

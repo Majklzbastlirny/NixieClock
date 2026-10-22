@@ -19,6 +19,15 @@ static clock_settings_t  s_cfg;
 static SemaphoreHandle_t s_lock;
 static volatile uint32_t s_ver;
 
+// Defaults for the fields v7 appended. Also applied after migrating a v6 blob,
+// whose trailing padding may overlap them. Keep in step with the struct tail.
+static void set_v7_defaults(clock_settings_t *c)
+{
+    c->ap_step_ms   = 120;               // the original fixed cascade speed
+    c->ap_anim      = AP_ANIM_CASCADE;   // the original animation
+    c->ap_pause_ild = false;             // original behaviour: may cover an interlude
+}
+
 // Sensible factory defaults. Night window 20:30 -> 06:00 per the design.
 static void load_defaults(clock_settings_t *c)
 {
@@ -41,6 +50,7 @@ static void load_defaults(clock_settings_t *c)
     c->ap_enabled    = true;
     c->ap_period_s   = 600;
     c->ap_duration_ms = 12000;
+    set_v7_defaults(c);
 
     c->alarm_enabled    = false;
     c->alarm_hour       = 7;
@@ -98,17 +108,33 @@ void settings_init(void)
     nvs_handle_t h;
     bool loaded = false;
 
+    bool migrated = false;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
+        // A buffer bigger than the stored blob is fine: len comes back as its size.
         esp_err_t err = nvs_get_blob(h, NVS_KEY_CFG, &tmp, &len);
         nvs_close(h);
         if (err == ESP_OK && len == sizeof(tmp) &&
             tmp.magic == SETTINGS_MAGIC && tmp.version == SETTINGS_VERSION) {
             s_cfg = tmp;
             loaded = true;
+        } else if (err == ESP_OK && tmp.magic == SETTINGS_MAGIC && tmp.version == 6 &&
+                   len >= offsetof(clock_settings_t, tz) + TZ_STRLEN && len < sizeof(tmp)) {
+            // v6 -> v7: same layout, v7 only appended fields. Keep everything the
+            // user set, default the new tail (set after the copy: v6's trailing
+            // padding bytes may overlap it).
+            load_defaults(&s_cfg);
+            memcpy(&s_cfg, &tmp, len);
+            set_v7_defaults(&s_cfg);
+            s_cfg.version = SETTINGS_VERSION;
+            loaded = migrated = true;
         }
     }
 
-    if (loaded) {
+    if (migrated) {
+        esp_err_t err = persist_locked();
+        ESP_LOGW(TAG, "settings migrated v6 -> v%u (%u -> %u bytes)%s", SETTINGS_VERSION,
+                 (unsigned)len, (unsigned)sizeof(s_cfg), err == ESP_OK ? "" : ", NVS write failed");
+    } else if (loaded) {
         ESP_LOGI(TAG, "settings loaded from NVS (v%u)", tmp.version);
     } else {
         load_defaults(&s_cfg);

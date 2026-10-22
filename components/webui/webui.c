@@ -68,6 +68,15 @@ static const char PAGE[] =
 
 "<h2>Anti-poisoning</h2><fieldset>"
 "<label>Enabled <input type='checkbox' id='ap_enabled' onchange='setck(this)'></label>"
+"<label>Every (min) <input type='number' min='1' max='1440' id='ap_period' onchange='set(this)'></label>"
+"<label>Length (s) <input type='number' min='1' max='120' id='ap_duration' onchange='set(this)'></label>"
+"<label>Speed (ms per step) <input type='number' min='20' max='1000' step='10' id='ap_speed' onchange='set(this)'></label>"
+"<label>Animation <select id='ap_anim' onchange='set(this)'><option>cascade</option><option>sync</option>"
+"<option>random</option><option>reels</option><option>wave</option><option>mix</option></select></label>"
+"<label>Pause for interludes <input type='checkbox' id='ap_pause' onchange='setck(this)'></label>"
+"<label><span class='m'>Scheduled scrubs then start only where they fit between the temperature/date "
+"readouts (within a minute at most). The Scrub button always runs at once &mdash; use it to preview.</span></label>"
+"<label>Next scrub <span id='ap_status' class='s'></span></label>"
 "<label>Run a scrub now <button onclick=\"act('antipoison_now')\">Scrub</button></label>"
 "</fieldset>"
 

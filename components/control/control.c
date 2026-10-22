@@ -4,6 +4,7 @@
 #include "alarm.h"
 #include "netclock.h"
 #include "bh1750.h"
+#include "antipoison.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -149,6 +150,11 @@ bool control_apply_kv(const char *key, const char *val, int vlen)
     else if (K("blink_colon"))      c.blink_colon = payload_on(val, vlen);
     else if (K("h24"))              c.h24 = payload_on(val, vlen);
     else if (K("ap_enabled"))       c.ap_enabled = payload_on(val, vlen);
+    else if (K("ap_period"))   { int m = atoi(val); c.ap_period_s = (uint32_t)(m < 1 ? 1 : m > 1440 ? 1440 : m) * 60; }
+    else if (K("ap_duration")) { int s = atoi(val); c.ap_duration_ms = (uint32_t)(s < 1 ? 1 : s > 120 ? 120 : s) * 1000; }
+    else if (K("ap_speed"))    { int ms = atoi(val); c.ap_step_ms = (uint16_t)(ms < 20 ? 20 : ms > 1000 ? 1000 : ms); }
+    else if (K("ap_anim"))          c.ap_anim = antipoison_anim_from_name(val);
+    else if (K("ap_pause"))         c.ap_pause_ild = payload_on(val, vlen);
     else if (K("alarm_enabled"))    c.alarm_enabled = payload_on(val, vlen);
     else if (K("alarm_melody"))     c.alarm_melody = (uint8_t)atoi(val);
     else if (K("alarm_snooze"))     c.alarm_snooze_min = (uint8_t)atoi(val);
@@ -260,6 +266,8 @@ int control_state_json(char *buf, size_t n)
 
     char alstat[24];
     alarm_status_str(&c, &lt, alstat, sizeof(alstat));
+    char apstat[24];
+    antipoison_status_str(apstat, sizeof(apstat));
 
     // Running firmware version + active OTA slot — lets the web UI confirm an
     // over-the-air update took (the slot flips ota_0<->ota_1 after a flash).
@@ -276,6 +284,8 @@ int control_state_json(char *buf, size_t n)
         "\"night_brightness\":%u,"
         "\"night_start\":\"%02u:%02u\",\"night_end\":\"%02u:%02u\","
         "\"blink_colon\":\"%s\",\"h24\":\"%s\",\"ap_enabled\":\"%s\","
+        "\"ap_period\":%lu,\"ap_duration\":%lu,\"ap_speed\":%u,\"ap_anim\":\"%s\","
+        "\"ap_pause\":\"%s\",\"ap_status\":\"%s\","
         "\"alarm_enabled\":\"%s\",\"alarm_time\":\"%02u:%02u\",\"alarm_melody\":%u,"
         "\"alarm_snooze\":%u,\"alarm_dow\":%u,\"alarm_ringing\":\"%s\",\"alarm_armed\":\"%s\","
         "\"alarm_status\":\"%s\","
@@ -296,6 +306,8 @@ int control_state_json(char *buf, size_t n)
         c.night_start_min / 60, c.night_start_min % 60,
         c.night_end_min / 60, c.night_end_min % 60,
         onoff(c.blink_colon), onoff(c.h24), onoff(c.ap_enabled),
+        (unsigned long)(c.ap_period_s / 60), (unsigned long)(c.ap_duration_ms / 1000),
+        c.ap_step_ms, antipoison_anim_name(c.ap_anim), onoff(c.ap_pause_ild), apstat,
         onoff(c.alarm_enabled), c.alarm_hour, c.alarm_min, c.alarm_melody,
         c.alarm_snooze_min, c.alarm_dow_mask, onoff(alarm_is_ringing()),
         onoff(c.alarm_enabled && alarm_is_armed()),

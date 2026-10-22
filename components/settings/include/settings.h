@@ -21,7 +21,8 @@
 #include <stddef.h>
 
 #define SETTINGS_MAGIC   0x4E58u   // 'NX'
-#define SETTINGS_VERSION 6
+#define SETTINGS_VERSION 7         // v7 appended the ap_step_ms.. fields; a v6 blob
+                                   // is migrated in place (settings.c), not reset
 
 #define TZ_STRLEN 40               // POSIX TZ string buffer (e.g. CET-1CEST,...)
 
@@ -35,6 +36,17 @@ typedef enum {
     NIGHT_MODE_SUN   = 1,   // dim between sunset and sunrise (computed on-device)
     NIGHT_MODE_LUX   = 2,   // track a BH1750 ambient-light sensor (if present)
 } night_mode_t;
+
+// Anti-poison scrub animation (names live in antipoison.c).
+typedef enum {
+    AP_ANIM_CASCADE = 0,    // digits roll diagonally across the tubes (original)
+    AP_ANIM_SYNC    = 1,    // all tubes show the same digit, counting 0-9
+    AP_ANIM_RANDOM  = 2,    // every tube a random digit each step
+    AP_ANIM_REELS   = 3,    // slot-machine reels, each tube at its own speed
+    AP_ANIM_WAVE    = 4,    // ripple outward from the centre tubes
+    AP_ANIM_MIX     = 5,    // a different one of the above each run
+    AP_ANIM_COUNT
+} ap_anim_t;
 
 // Source feeding a temperature display slot.
 typedef enum {
@@ -103,6 +115,14 @@ typedef struct {
 
     // --- Timezone ----------------------------------------------------------
     char     tz[TZ_STRLEN];                // POSIX TZ string (DST-aware)
+
+    // --- v7 additions: APPEND ONLY below this line -------------------------
+    // settings.c migrates a shorter v6 blob by copying it over the defaults and
+    // re-defaulting these fields, so existing users keep their settings.
+    uint16_t ap_step_ms;                   // scrub animation speed, ms per step
+    uint8_t  ap_anim;                      // ap_anim_t
+    bool     ap_pause_ild;                 // auto scrubs only start where they fit
+                                           // between the temp/date interludes
 } clock_settings_t;
 
 // Load from NVS (or defaults if absent/corrupt) and prepare the lock. Also

@@ -102,6 +102,20 @@ socket timeouts (`OTA_MAX_RECV_STALLS` × `recv_wait_timeout`) and aborts, or a
 dropped upload spins the single httpd worker forever with the display latched
 blank and the device needs a power cycle (learned the hard way).
 
+**Anti-poison is tunable** (`ap_period` min, `ap_duration` s, `ap_speed` ms/step,
+`ap_anim`, `ap_pause`).
+- **Animations:** cascade (the original), sync, random, reels, wave, and mix
+  (round-robin per run). They live in `antipoison.c` `draw_step()`, and every
+  one must still walk each tube through all ten digits.
+- **Pause for interludes:** `main.c` `scrub_may_start()` passes `may_start` into
+  `antipoison_tick()`, which gates only a *due automatic* run (manual runs
+  always start). The run waits until `ceil(duration)+1` free seconds fit
+  outside the temp/date windows; a temp slot counts only if it has a source.
+  If no gap is long enough, it starts at the beginning of the longest gap, so
+  it never waits more than a minute.
+- **Status:** `antipoison_status_str()` feeds `ap_status` ("in 7m03s" /
+  "waiting for a gap" / "running" / "off").
+
 The `alarm` component exposes more than ring state: `alarm_status_str(c, lt, out, n)`
 builds a human string (`disabled` / `ringing` / `snoozed 6m` / `off 23h59m` /
 `armed 7h12m`, honouring the DOW mask for time-to-next) consumed by BOTH
@@ -119,6 +133,19 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
 - **New files:** write them in one `Write` call. Sequential `Edit`s on a
   just-created file have interleaved/scrambled content this session — and `Read`
   output was occasionally garbled too. Prefer `Grep` to verify a specific line.
+- **lwIP sockets vs. httpd sessions (burned us):** `CONFIG_LWIP_MAX_SOCKETS=16`
+  in `sdkconfig.defaults`, with `cfg.max_open_sockets = 7` and the LRU purge in
+  `webui_start`.
+  - **What went wrong at the default 10:** httpd's 3 internal sockets + MQTT +
+    SNTP ran lwIP out at about 5 sessions, so httpd never reached its own cap
+    and never purged.
+  - **The symptom:** two open browser tabs, whose idle keep-alive sockets
+    Chrome holds for minutes, made the web UI accept-and-drop every new client
+    while the clock kept running. A power cycle "fixed" it.
+  - **The rule:** keep `max_open_sockets + 3 + other sockets` below
+    `LWIP_MAX_SOCKETS`. Every extra page poll adds parallel browser sockets.
+  - **Repro:** hold N idle keep-alive connections, then make a fresh request;
+    it must still get 200 with 13 held.
 - **Task stacks vs. state-JSON buffers (burned us):** the full device-state JSON
   (`control_state_json` / `mqttctrl publish_state`) is built in a ~1.5 KB stack
   buffer, plus per-entity discovery buffers (~800 B) and the DS-sensor list. The
@@ -210,6 +237,16 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   list untouched; v4→v5 added `night_mode`/`lat_e2`/`lon_e2` for sun/lux dimming;
   v5→v6 added `temp_sec`/`temp_len`/`date_*` (configurable interlude schedule) +
   `tz` (POSIX timezone).)
+  **From v7 on, bumps migrate instead of resetting.** v6→v7 appended
+  `ap_step_ms`/`ap_anim`/`ap_pause_ild` after `tz`. `settings_init` reads the
+  blob into a full-size buffer; a v6 blob comes back shorter. It is copied over
+  the defaults, and then `set_v7_defaults()` re-defaults the new tail, because
+  v6's trailing padding overlaps it. Pattern for the next bump:
+  - append fields at the end only (marked "APPEND ONLY" in the struct);
+  - bump the version;
+  - add a `set_vN_defaults()` and a branch for version N-1.
+  **Rollback caveat:** a v6 build (≤ `b259856`) sees a v7 blob as invalid and
+  resets to defaults. Booting the old OTA slot after this costs the user their settings.
 - **Wall-clock epoch is persisted OUTSIDE the settings blob** (`settings_persist_epoch`
   /`settings_load_epoch`, NVS key `"epoch"` in the `"clock"` namespace) so a
   schema bump never wipes it. `main.c` writes it every ~3h (and on every time-set
