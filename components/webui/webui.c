@@ -289,7 +289,7 @@ static const char PAGE[] =
 "function logtick(){if(document.getElementById('logauto').checked){if(!logt)logt=setInterval(loadlog,3000);}"
 "else{clearInterval(logt);logt=null;}}"
 "refresh();loadnet();loadlog();loadshelly();loadshtime();setInterval(refresh,3000);setInterval(loadshelly,3000);"
-"setInterval(loadshtime,3000);"
+"setInterval(loadshtime,10000);"   // debug panel: slower, keeps sockets/requests down
 "</script></body></html>";
 
 static esp_err_t root_get(httpd_req_t *req)
@@ -667,6 +667,11 @@ static esp_err_t shellytime_get(httpd_req_t *req)
 void webui_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    // Browsers hold idle keep-alive sockets for minutes. The LRU purge evicts the
+    // oldest once max_open_sockets is reached, which only works if lwIP still has
+    // a free socket for the new client at that point (CONFIG_LWIP_MAX_SOCKETS=16 >
+    // 7 + 3 internal + MQTT/SNTP/DNS). At lwIP's default 10 the web UI locked out.
+    cfg.max_open_sockets = 7;
     cfg.lru_purge_enable = true;
     cfg.max_uri_handlers = 16;
     // The state handler builds a ~1.7 KB JSON buffer plus the DS-sensor list on

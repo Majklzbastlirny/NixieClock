@@ -38,3 +38,11 @@ CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
 # throughput hit, irrelevant for SNTP/MQTT/web) to reclaim the IRAM.
 CONFIG_ESP_WIFI_IRAM_OPT=n
 CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+
+# --- Sockets ------------------------------------------------------------------
+# lwIP's default of 10 sockets ran out BEFORE httpd's own 7-session cap: httpd
+# keeps 3 internal sockets, MQTT and SNTP take more, so ~5-6 idle browser
+# keep-alive sockets (two open tabs) locked the web UI out (new clients accepted
+# then dropped) until the browser let them go, minutes later. With 16, httpd
+# reaches max_open_sockets first and its LRU purge evicts the oldest idle client.
+CONFIG_LWIP_MAX_SOCKETS=16
