@@ -59,14 +59,19 @@ The flash is a dual-OTA layout (two ~1.875 MB app slots + `otadata`), so after t
 again:
 
 1. `pio run` to build a new `.pio/build/esp32dev/firmware.bin`.
-2. Open the clock's web UI (its IP is shown at the top of the page) → **Firmware**
-   section → pick that `firmware.bin` → **Upload**.
+2. Open the clock's web UI (its IP is shown at the top of the page), log in, → **Firmware**
+   section → pick that `firmware.bin` → **Upload**. From a terminal:
+   `curl -u <user>:<pass> --data-binary @.pio/build/esp32dev/firmware.bin http://<clock-ip>/api/ota`.
 3. It streams into the spare slot and reboots into it. The **Running** line shows the
    version and active slot (`ota_0`/`ota_1`), which flips after each successful update.
 
 A failed or interrupted upload leaves the current firmware bootable — the new slot is
 only made active once the whole image is written and verified. Settings and
 WiFi/MQTT credentials live in NVS and are untouched by updates.
+
+If a new image ever locks you out of the web UI (say, a broken login), hold
+button 5 for ~3 s to open the setup portal and press **Boot previous firmware**:
+it boots the other slot, i.e. the firmware you had before, with settings intact.
 
 ## First-time setup / credentials
 
@@ -80,8 +85,13 @@ To seed defaults at compile time, copy the template:
 
 ```sh
 cp components/common/include/secrets.example.h components/common/include/secrets.h
-# edit WIFI_SSID / WIFI_PASS / MQTT_* 
+# edit WIFI_SSID / WIFI_PASS / MQTT_* and the web login OTA_USERNAME / OTA_PASSWORD
 ```
+
+The **web login** (`OTA_USERNAME` / `OTA_PASSWORD`) is different from WiFi/MQTT:
+it always comes from `secrets.h` (not NVS), so changing it means rebuilding and
+flashing, and a factory reset doesn't clear it. Leave either one empty to turn
+the login off.
 
 Or skip `secrets.h` entirely and provision over WiFi (see below).
 
@@ -120,10 +130,12 @@ Bonus combo: **hold brightness + and − together (~2 s)** toggles the alarm on/
 All three share one settings store, so changes from any surface are reflected
 everywhere instantly:
 
-- **Web UI** — `http://<clock-ip>/` : brightness, night schedule, anti-poison
+- **Web UI** — `http://<clock-ip>/`, behind a login (HTTP Basic auth, set in
+  `secrets.h`): brightness, night schedule, anti-poison
   (interval, length, speed, 5 animations + mix, pause-for-interludes),
   alarm (incl. day-of-week + melody + snooze), temperature slots/decimals, and
-  network config. Tap button 5 to see the IP on the tubes.
+  network config, plus **Reboot** and factory reset under *System*. Tap button 5
+  to see the IP on the tubes.
 - **MQTT + Home Assistant** — auto-discovers as a *Nixie Clock* device
   (`nixie-<mac>`). Topics under `nixieclock/<node>/…`, HA discovery under
   `homeassistant/…`.
@@ -131,7 +143,9 @@ everywhere instantly:
   the `GET /api/set?k=…&v=…` alias, `POST|GET /api/action?a=<action>`,
   `GET|POST /api/settime?epoch=…&tz=…` (set the clock from a client),
   `GET /api/net`, `POST /api/netset`, `POST /api/ota` (firmware upload),
-  `GET /api/log`, `GET /api/blescan`, `GET /api/shellytime`.
+  `GET /api/log`, `GET /api/blescan`, `GET /api/shellytime`. Same login as the
+  web UI: `curl -u <user>:<pass> …`, or `username`/`password` in an HA
+  `rest_command`.
 
 ## Features
 
@@ -171,7 +185,11 @@ everywhere instantly:
 - Alarm with snooze + dismiss, day-of-week mask, and RTTTL melodies.
 - Cold-start "slot machine" animation until the time is known.
 - **Over-the-air updates** — upload a new `firmware.bin` from the web UI (dual-OTA
-  slots); no serial needed after the first flash.
+  slots); no serial needed after the first flash. A **Boot previous firmware**
+  button in the setup portal rolls back without the web login.
+- **Web login** — HTTP Basic auth on the whole web UI, REST API and firmware
+  upload, so nobody else on the LAN can change settings. Plain HTTP, so it's a
+  lock on the door, not encryption.
 - **Web log viewer** — recent device log over `GET /api/log`, since the assembled
   clock has no serial access.
 

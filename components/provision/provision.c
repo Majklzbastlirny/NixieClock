@@ -18,6 +18,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_http_server.h"
+#include "esp_ota_ops.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
 #include "esp_random.h"
@@ -145,6 +146,12 @@ static const char FORM_HEAD[] =
 "<p>This device: <b id='pht'>--:--:--</b> <span id='phz' class='m'></span></p>"
 "<button onclick='st()'>Set clock from this device</button>"
 "<p id='stm' class='m'></p>"
+"<hr><h1>Firmware recovery</h1>"
+"<p class='m'>If a firmware update locked you out of the web UI (e.g. a broken "
+"login), boot the previously installed firmware instead. Settings are kept.</p>"
+"<form method='POST' action='/rollback' "
+"onsubmit=\"return confirm('Boot the previously installed firmware?')\">"
+"<button type='submit'>Boot previous firmware</button></form>"
 "<script>fetch('/scan').then(r=>r.json()).then(function(a){"
 "var s=document.getElementById('ssid');a.forEach(function(n){"
 "var o=document.createElement('option');o.textContent=n;o.value=n;s.appendChild(o);});});"
@@ -257,6 +264,34 @@ static esp_err_t save_post(httpd_req_t *req)
         HTTPD_RESP_USE_STRLEN);
 
     ESP_LOGI(TAG, "saved creds for SSID=%s; rebooting", use_ssid);
+    vTaskDelay(pdMS_TO_TICKS(800));   // let the response flush
+    esp_restart();
+    return ESP_OK;
+}
+
+// Recovery: boot the other OTA slot, i.e. the previously installed firmware.
+// This is the credential-free way back if a new image's web login ever locks
+// you out; getting here already takes physical access (button hold + the PIN
+// shown on the tubes). esp_ota_set_boot_partition() validates the image first,
+// so an empty or corrupt slot is refused instead of bricking the boot.
+static esp_err_t rollback_post(httpd_req_t *req)
+{
+    const esp_partition_t *other = esp_ota_get_next_update_partition(NULL);
+    esp_err_t err = other ? esp_ota_set_boot_partition(other) : ESP_ERR_NOT_FOUND;
+    httpd_resp_set_type(req, "text/html");
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "rollback refused: %s", esp_err_to_name(err));
+        httpd_resp_send(req,
+            "<!doctype html><meta charset='utf-8'><body style='font-family:sans-serif'>"
+            "<h1>No valid previous firmware.</h1><p><a href='/'>back</a></p>",
+            HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    httpd_resp_send(req,
+        "<!doctype html><meta charset='utf-8'><body style='font-family:sans-serif'>"
+        "<h1>Booting the previous firmware.</h1><p>The clock reboots and rejoins your network.</p>",
+        HTTPD_RESP_USE_STRLEN);
+    ESP_LOGW(TAG, "rollback: booting %s", other->label);
     vTaskDelay(pdMS_TO_TICKS(800));   // let the response flush
     esp_restart();
     return ESP_OK;
@@ -382,11 +417,13 @@ void provision_run(const char *node_suffix)
     httpd_uri_t scan  = { .uri = "/scan",    .method = HTTP_GET,  .handler = scan_get };
     httpd_uri_t save  = { .uri = "/save",    .method = HTTP_POST, .handler = save_post };
     httpd_uri_t stime = { .uri = "/settime", .method = HTTP_POST, .handler = settime_post };
+    httpd_uri_t rback = { .uri = "/rollback", .method = HTTP_POST, .handler = rollback_post };
     httpd_uri_t other = { .uri = "/*",       .method = HTTP_GET,  .handler = redirect_get };
     httpd_register_uri_handler(srv, &form);
     httpd_register_uri_handler(srv, &scan);
     httpd_register_uri_handler(srv, &save);
     httpd_register_uri_handler(srv, &stime);
+    httpd_register_uri_handler(srv, &rback);
     httpd_register_uri_handler(srv, &other);
 
     // Park here; save_post() reboots on success.

@@ -102,6 +102,25 @@ socket timeouts (`OTA_MAX_RECV_STALLS` × `recv_wait_timeout`) and aborts, or a
 dropped upload spins the single httpd worker forever with the display latched
 blank and the device needs a power cycle (learned the hard way).
 
+**The web UI is behind a login** (HTTP Basic auth, `OTA_USERNAME`/`OTA_PASSWORD`
+from `secrets.h`, compiled in, NOT in NVS, so factory reset doesn't clear it).
+- **One chokepoint:** every route lives in the file-scope `s_routes[]` table in
+  `webui.c` and is registered through `guarded()`, which calls `authorized()`
+  before the real handler. Add new routes to that table, never with a direct
+  `httpd_register_uri_handler`, or they skip the login.
+- **Fails open, never locked:** missing or empty macros turn the login OFF and
+  log `web login DISABLED`. A `_Static_assert` catches creds too long for the buffer.
+- **OTA now needs the creds too.** From the CLI, upload with
+  `curl -u "$U:$P" --data-binary @firmware.bin http://<ip>/api/ota`. Don't paste
+  the real values into chat; read them from `secrets.h` in the shell.
+- **Recovery without the creds:** the SoftAP portal (button 5 held ~3 s, PIN on
+  the tubes; `provision.c`) has **Boot previous firmware** (`POST /rollback`).
+  It calls `esp_ota_set_boot_partition()` on the other slot, which validates the
+  image first. That is the way back if a login bug ever locks out OTA on this
+  serial-less clock, so don't remove it. The portal uses 6 of its 8 URI handlers.
+- `reboot` is an action (`do_action` sets `s_reboot_req`; the POST/GET handler
+  restarts after `send_state`), and it persists the epoch first.
+
 **Anti-poison is tunable** (`ap_period` min, `ap_duration` s, `ap_speed` ms/step,
 `ap_anim`, `ap_pause`).
 - **Animations:** cascade (the original), sync, random, reels, wave, and mix
@@ -208,7 +227,7 @@ melody** button. `alarm_is_snoozed()` feeds the colon cue (below).
   - **Don't add a NimBLE init** (the standalone scanner in
     `~/Documents/BThome_Tests/esp32_shelly_time` is for apps without BLE). blescan
     owns NimBLE here.
-  - **URI handlers:** 14 of `max_uri_handlers = 16` are now used.
+  - **URI handlers:** 14 of `max_uri_handlers = 16` are now used (web UI; all via `s_routes[]`).
 - **Colon blinks during OTA** (`PIN_COLON` is a dedicated GPIO, not multiplexed).
   While `s_hold_off` (OTA), the nixie ISR itself drives `PIN_COLON` from a frame
   counter (~6 Hz) — because the httpd worker is stalled in `esp_ota_write` and

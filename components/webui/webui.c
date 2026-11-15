@@ -11,8 +11,10 @@
 #include "shellytime.h"
 #include "settings.h"
 #include "rtc_clock.h"
+#include "secrets.h"
 
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <time.h>
 #include <sys/time.h>
@@ -23,6 +25,16 @@
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "esp_log.h"
+#include "mbedtls/base64.h"
+
+// Web UI login (HTTP Basic auth), compiled in from secrets.h. A secrets.h
+// without these (older copies) builds with the login OFF rather than locked.
+#ifndef OTA_USERNAME
+#define OTA_USERNAME ""
+#endif
+#ifndef OTA_PASSWORD
+#define OTA_PASSWORD ""
+#endif
 
 static const char *TAG = "webui";
 
@@ -182,6 +194,8 @@ static const char PAGE[] =
 "</fieldset>"
 
 "<h2>System</h2><fieldset>"
+"<label><span class='m'>Restart the clock. Settings and time are kept.</span>"
+"<button onclick='reboot()'>Reboot</button></label>"
 "<label><span class='m'>Erases WiFi/MQTT credentials and all settings, then reboots into setup.</span>"
 "<button onclick='freset()' style='color:#f66'>Factory reset</button></label>"
 "</fieldset>"
@@ -281,6 +295,9 @@ static const char PAGE[] =
 "function savenet(){var b='ssid='+gv('n_ssid')+'&pass='+gv('n_pass')+'&mhost='+gv('n_mhost')"
 "+'&mport='+gv('n_mport')+'&muser='+gv('n_muser')+'&mpass='+gv('n_mpass');"
 "fetch('/api/netset',{method:'POST',body:b}).then(r=>r.text()).then(function(t){alert(t);loadnet();});}"
+"function reboot(){if(!confirm('Reboot the clock?'))return;act('reboot');"
+"document.getElementById('status').textContent='rebooting...';"
+"setTimeout(function(){location.reload();},9000);}"
 "function freset(){if(confirm('Factory reset? This erases WiFi/MQTT credentials and all settings, then reboots into setup mode.'))"
 "fetch('/api/action?a=factory_reset',{method:'POST',body:'RESET'});}"
 "function otaup(){var f=document.getElementById('fwfile').files[0];if(!f){alert('pick a .bin');return;}"
@@ -375,6 +392,20 @@ static esp_err_t set_get(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Set by the "reboot" action; the action handler restarts after it has replied.
+static bool s_reboot_req;
+
+static void reboot_after_reply(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    if (tv.tv_sec > 1700000000)   // time is valid: an RTC-less boot resumes from here
+        settings_persist_epoch((int64_t)tv.tv_sec);
+    ESP_LOGW(TAG, "reboot requested from the web UI");
+    vTaskDelay(pdMS_TO_TICKS(500));   // let the response flush before we reboot
+    esp_restart();
+}
+
 static int parse_centi(const char *s)
 {
     double f = atof(s);
@@ -393,7 +424,8 @@ static bool do_action(const char *a, const char *val, int vlen)
         return false;                 // no/!token -> caller reports the error
     }
 
-    if (!strcmp(a, "antipoison_now"))   antipoison_trigger();
+    if (!strcmp(a, "reboot"))            s_reboot_req = true;   // after the reply
+    else if (!strcmp(a, "antipoison_now")) antipoison_trigger();
     else if (!strcmp(a, "alarm_snooze")) alarm_snooze();
     else if (!strcmp(a, "alarm_dismiss")) alarm_dismiss();
     else if (!strcmp(a, "alarm_test"))   alarm_preview_melody();
@@ -418,6 +450,7 @@ static esp_err_t action_post(httpd_req_t *req)
         return ESP_OK;
     }
     send_state(req);
+    if (s_reboot_req) reboot_after_reply();
     return ESP_OK;
 }
 
@@ -435,6 +468,7 @@ static esp_err_t action_get(httpd_req_t *req)
         return ESP_OK;
     }
     send_state(req);
+    if (s_reboot_req) reboot_after_reply();
     return ESP_OK;
 }
 
@@ -673,6 +707,94 @@ static esp_err_t shellytime_get(httpd_req_t *req)
     return ESP_OK;
 }
 
+// --- login (HTTP Basic auth) --------------------------------------------------
+// Every route is registered through guarded(), so the check lives in ONE place
+// and a newly added handler can't forget it. The browser prompts once on the
+// page load, then attaches the credentials to every fetch/XHR (the 3 s state
+// poll, the firmware upload) by itself. Plain HTTP: this keeps casual LAN users
+// out, it doesn't encrypt anything. The SoftAP portal (physical access) is not
+// behind it, and offers "boot previous firmware" in case a login ever breaks.
+static char s_auth_b64[176];   // base64("user:pass"); "" = login disabled
+
+static void auth_init(void)
+{
+    static const char user[] = OTA_USERNAME, pass[] = OTA_PASSWORD;
+    char raw[sizeof(user) + sizeof(pass)];   // "user:pass" + NUL fits exactly
+    _Static_assert(4 * ((sizeof(user) + sizeof(pass)) / 3 + 1) < sizeof(s_auth_b64),
+                   "OTA_USERNAME/OTA_PASSWORD too long for the auth buffer");
+    if (!user[0] || !pass[0]) {
+        ESP_LOGW(TAG, "web login DISABLED (OTA_USERNAME/OTA_PASSWORD empty in secrets.h)");
+        return;
+    }
+    int n = snprintf(raw, sizeof(raw), "%s:%s", user, pass);
+    size_t olen = 0;
+    if (mbedtls_base64_encode((unsigned char *)s_auth_b64, sizeof(s_auth_b64), &olen,
+                              (const unsigned char *)raw, (size_t)n) != 0) {
+        s_auth_b64[0] = '\0';   // can't happen given the static assert; fail open
+        ESP_LOGE(TAG, "web login: encode failed, login DISABLED");
+        return;
+    }
+    ESP_LOGI(TAG, "web login enabled for user '%s'", user);
+}
+
+// Same-length compare that doesn't stop at the first mismatching byte.
+static bool same_str(const char *a, const char *b)
+{
+    size_t la = strlen(a), lb = strlen(b);
+    unsigned char d = (la != lb);
+    for (size_t i = 0; i < lb; i++)
+        d |= (unsigned char)(a[i < la ? i : 0] ^ b[i]);
+    return d == 0;
+}
+
+// True if the request may proceed. Otherwise a 401 + challenge has been sent.
+static bool authorized(httpd_req_t *req)
+{
+    if (!s_auth_b64[0]) return true;   // login not configured
+    char hdr[sizeof(s_auth_b64) + 16];
+    size_t len = httpd_req_get_hdr_value_len(req, "Authorization");
+    if (len > 6 && len < sizeof(hdr) &&
+        httpd_req_get_hdr_value_str(req, "Authorization", hdr, sizeof(hdr)) == ESP_OK &&
+        strncasecmp(hdr, "Basic ", 6) == 0 && same_str(hdr + 6, s_auth_b64))
+        return true;
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Nixie Clock\", charset=\"UTF-8\"");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "401 Unauthorized: log in with the clock's web login");
+    return false;
+}
+
+typedef struct {
+    const char     *uri;
+    httpd_method_t  method;
+    esp_err_t     (*fn)(httpd_req_t *req);
+} route_t;
+
+// File-scope: httpd keeps the user_ctx pointer to each entry.
+static const route_t s_routes[] = {
+    { "/",               HTTP_GET,  root_get },
+    { "/api/state",      HTTP_GET,  state_get },
+    { "/api/set",        HTTP_POST, set_post },
+    { "/api/set",        HTTP_GET,  set_get },
+    { "/api/action",     HTTP_POST, action_post },
+    { "/api/action",     HTTP_GET,  action_get },
+    { "/api/settime",    HTTP_POST, settime_req },
+    { "/api/settime",    HTTP_GET,  settime_req },
+    { "/api/net",        HTTP_GET,  net_get },
+    { "/api/netset",     HTTP_POST, netset_post },
+    { "/api/ota",        HTTP_POST, ota_post },
+    { "/api/log",        HTTP_GET,  log_get },
+    { "/api/blescan",    HTTP_GET,  blescan_get },
+    { "/api/shellytime", HTTP_GET,  shellytime_get },
+};
+
+static esp_err_t guarded(httpd_req_t *req)
+{
+    if (!authorized(req)) return ESP_OK;   // 401 already sent
+    const route_t *r = req->user_ctx;
+    return r->fn(req);
+}
+
 void webui_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
@@ -696,24 +818,14 @@ void webui_start(void)
         return;
     }
 
-    httpd_uri_t routes[] = {
-        { .uri = "/",           .method = HTTP_GET,  .handler = root_get },
-        { .uri = "/api/state",  .method = HTTP_GET,  .handler = state_get },
-        { .uri = "/api/set",    .method = HTTP_POST, .handler = set_post },
-        { .uri = "/api/set",    .method = HTTP_GET,  .handler = set_get },
-        { .uri = "/api/action", .method = HTTP_POST, .handler = action_post },
-        { .uri = "/api/action", .method = HTTP_GET,  .handler = action_get },
-        { .uri = "/api/settime",.method = HTTP_POST, .handler = settime_req },
-        { .uri = "/api/settime",.method = HTTP_GET,  .handler = settime_req },
-        { .uri = "/api/net",    .method = HTTP_GET,  .handler = net_get },
-        { .uri = "/api/netset", .method = HTTP_POST, .handler = netset_post },
-        { .uri = "/api/ota",    .method = HTTP_POST, .handler = ota_post },
-        { .uri = "/api/log",    .method = HTTP_GET,  .handler = log_get },
-        { .uri = "/api/blescan",.method = HTTP_GET,  .handler = blescan_get },
-        { .uri = "/api/shellytime", .method = HTTP_GET, .handler = shellytime_get },
-    };
-    for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++)
-        httpd_register_uri_handler(srv, &routes[i]);
+    auth_init();
+    for (size_t i = 0; i < sizeof(s_routes) / sizeof(s_routes[0]); i++) {
+        httpd_uri_t u = {
+            .uri = s_routes[i].uri, .method = s_routes[i].method,
+            .handler = guarded, .user_ctx = (void *)&s_routes[i],
+        };
+        httpd_register_uri_handler(srv, &u);
+    }
 
     ESP_LOGI(TAG, "web UI started on :80");
 }

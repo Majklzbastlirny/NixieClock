@@ -78,7 +78,9 @@ dedicated **snooze** button.
 ### The web page
 
 Open `http://<clock-ip>/` in any browser on the same network (find the IP by
-tapping button 5). From there you can set:
+tapping button 5). The browser asks for a **username and password** first: that's
+the clock's web login, set by whoever built the firmware (`OTA_USERNAME` /
+`OTA_PASSWORD` in `secrets.h`). From there you can set:
 
 - Brightness, and a **night schedule** (dimmer between, e.g., 20:30 and 06:00).
 - **Anti-poisoning** — the "scrub" that runs every digit on every tube so rarely
@@ -102,6 +104,9 @@ tapping button 5). From there you can set:
   Shelly** does it once a day, but only when internet time (NTP) hasn't worked for
   a day, so NTP always stays the main source. Below the buttons you can see what
   happened, and which Shellies the clock hears and how far their time is from the clock's.
+
+- **System** — **Reboot** restarts the clock (settings and time are kept), and
+  **Factory reset**.
 
 Changes apply instantly and stay in sync everywhere (web page, Home Assistant,
 buttons all share the same settings).
@@ -165,7 +170,12 @@ them is reflected on the others immediately.
 
 #### Web UI + REST/JSON
 
-Served by the clock itself at `http://<clock-ip>/`.
+Served by the clock itself at `http://<clock-ip>/`. **Every** path, including the
+page, the REST API and `/api/ota`, needs the web login (HTTP Basic auth, from
+`OTA_USERNAME` / `OTA_PASSWORD` in `secrets.h`); without it you get `401`. From
+scripts: `curl -u <user>:<pass> http://<clock-ip>/api/state`; in a Home Assistant
+`rest_command`, set `username:` and `password:`. It's plain HTTP, so this keeps
+others on the LAN out but doesn't encrypt anything.
 
 | Method & path | Purpose |
 |---------------|---------|
@@ -237,6 +247,7 @@ shelly_time_daily     ON / OFF      (daily clock sync from the Shelly BLE time
 shelly_sync           set the clock from the Shelly BLE time beacon now (waits
                       up to 25 s for one; result in /api/shellytime and the log)
 antipoison_now        run the anti-poison cycle now
+reboot                restart the clock (after replying; settings + time kept)
 alarm_snooze          snooze a ringing alarm
 alarm_dismiss         dismiss the alarm until tomorrow
 alarm_test            preview the currently selected alarm melody once
@@ -293,8 +304,13 @@ To seed defaults at compile time:
 
 ```sh
 cp components/common/include/secrets.example.h components/common/include/secrets.h
-# edit WIFI_SSID / WIFI_PASS / MQTT_*
+# edit WIFI_SSID / WIFI_PASS / MQTT_* and the web login OTA_USERNAME / OTA_PASSWORD
 ```
+
+The **web login** is the exception to "NVS wins": `OTA_USERNAME` /
+`OTA_PASSWORD` always come from `secrets.h`, so changing them means rebuilding
+and flashing, and a factory reset doesn't clear them. Leave either empty to turn
+the login off (the boot log then says `web login DISABLED`).
 
 ### Build, flash, monitor
 
@@ -321,7 +337,13 @@ Flash layout: 4 MB, custom `partitions.csv` — dual-OTA (two ~1.875 MB app slot
 web UI's **Firmware** section (pick `.pio/build/esp32dev/firmware.bin` → Upload). It
 writes the spare slot and reboots into it; the **Running** line shows the version and
 active slot. A bad/interrupted upload leaves the current firmware bootable, and NVS
-(settings + credentials) is never touched.
+(settings + credentials) is never touched. From a terminal:
+`curl -u <user>:<pass> --data-binary @.pio/build/esp32dev/firmware.bin http://<clock-ip>/api/ota`.
+
+**Locked out after an update?** (e.g. a broken login) Hold **button 5 for ~3 s**
+to enter the setup portal, join its WiFi with the PIN from the tubes, and press
+**Boot previous firmware**. It boots the other OTA slot, the firmware you had
+before, with settings intact. It refuses if that slot holds no valid image.
 
 ### Melody table (`alarm_melody`)
 
@@ -408,7 +430,9 @@ Vepředu je pět tlačítek (pod pozicemi tubic 1–5) plus vyhrazené tlačítk
 ### Webová stránka
 
 Otevřete `http://<ip-hodin>/` v jakémkoli prohlížeči ve stejné síti (IP zjistíte
-ťuknutím na tlačítko 5). Můžete tam nastavit:
+ťuknutím na tlačítko 5). Prohlížeč se nejdřív zeptá na **jméno a heslo**: to je
+webové přihlášení hodin, které nastavil ten, kdo sestavil firmware
+(`OTA_USERNAME` / `OTA_PASSWORD` v `secrets.h`). Můžete tam nastavit:
 
 - Jas a **noční plán** (ztlumení např. mezi 20:30 a 06:00).
 - **Anti-poisoning** — „čištění“, které projede všechny číslice na všech
@@ -432,6 +456,9 @@ Otevřete `http://<ip-hodin>/` v jakémkoli prohlížeči ve stejné síti (IP z
   Shelly** to dělá jednou denně, ale jen když čas z internetu (NTP) den nefungoval,
   takže NTP zůstává hlavním zdrojem. Pod tlačítky je vidět, jak synchronizace
   dopadla, které Shelly hodiny slyší a o kolik se jejich čas liší od času hodin.
+
+- **Systém** — **Reboot** hodiny restartuje (nastavení i čas zůstanou) a
+  **Factory reset**.
 
 Změny se projeví okamžitě a zůstávají všude synchronizované (web, Home Assistant
 i tlačítka sdílí stejné nastavení).
@@ -497,7 +524,12 @@ kterémkoli se okamžitě projeví na ostatních.
 
 #### Webové UI + REST/JSON
 
-Hostují samy hodiny na `http://<ip-hodin>/`.
+Hostují samy hodiny na `http://<ip-hodin>/`. **Každá** cesta, včetně stránky,
+REST API a `/api/ota`, vyžaduje webové přihlášení (HTTP Basic auth, z
+`OTA_USERNAME` / `OTA_PASSWORD` v `secrets.h`); bez něj dostanete `401`. Ze
+skriptů: `curl -u <jméno>:<heslo> http://<ip-hodin>/api/state`; v Home Assistant
+`rest_command` nastavte `username:` a `password:`. Je to obyčejné HTTP: ostatní v
+síti to zastaví, ale nic to nešifruje.
 
 | Metoda a cesta | Účel |
 |----------------|------|
@@ -569,6 +601,7 @@ shelly_time_daily     ON / OFF      (denní synchronizace času z BLE majáku Sh
 shelly_sync           nastavit čas hned z BLE majáku Shelly (čeká na něj až
                       25 s; výsledek v /api/shellytime a v logu)
 antipoison_now        spustit anti-poison cyklus hned
+reboot                restartovat hodiny (po odpovědi; nastavení + čas zůstanou)
 alarm_snooze          odložit zvonící budík
 alarm_dismiss         vypnout budík do zítřka
 alarm_test            přehrát jednou aktuálně vybranou melodii budíku
@@ -625,8 +658,13 @@ Nasazení výchozích hodnot při kompilaci:
 
 ```sh
 cp components/common/include/secrets.example.h components/common/include/secrets.h
-# uprav WIFI_SSID / WIFI_PASS / MQTT_*
+# uprav WIFI_SSID / WIFI_PASS / MQTT_* a webové přihlášení OTA_USERNAME / OTA_PASSWORD
 ```
+
+**Webové přihlášení** je výjimka z pravidla „NVS má přednost“: `OTA_USERNAME` /
+`OTA_PASSWORD` se berou vždy ze `secrets.h`, takže jejich změna znamená nový build
+a flash, a tovární reset je nesmaže. Když necháte jedno z nich prázdné,
+přihlášení se vypne (log při bootu pak hlásí `web login DISABLED`).
 
 ### Sestavení, flashování, monitor
 
@@ -653,7 +691,14 @@ sloty + `otadata` + NVS + SPIFFS). App zabírá ~67 % slotu.
 ze sekce **Firmware** ve webovém UI (vyberte `.pio/build/esp32dev/firmware.bin` →
 Upload). Zapíše se do volného slotu a hodiny se do něj restartují; řádek **Running**
 ukazuje verzi a aktivní slot. Neúspěšné/přerušené nahrání ponechá stávající firmware
-funkční a NVS (nastavení + údaje) zůstává nedotčené.
+funkční a NVS (nastavení + údaje) zůstává nedotčené. Z terminálu:
+`curl -u <jméno>:<heslo> --data-binary @.pio/build/esp32dev/firmware.bin http://<ip-hodin>/api/ota`.
+
+**Po aktualizaci se nedostanete dovnitř?** (např. rozbité přihlášení) Podržte
+**tlačítko 5 asi 3 s**, tím se spustí nastavovací portál; připojte se k jeho WiFi
+s PINem z tubic a stiskněte **Boot previous firmware**. Hodiny nabootují druhý
+OTA slot, tedy firmware, který jste měli předtím, a nastavení zůstane. Pokud v
+tom slotu žádný platný firmware není, akce se odmítne.
 
 ### Tabulka melodií (`alarm_melody`)
 
