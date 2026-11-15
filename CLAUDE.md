@@ -100,7 +100,12 @@ multiplexed tubes stay dark instead of glitching while `esp_ota_write` stalls
 the CPU — cleared only on failure; (2) the recv loop **bounds** consecutive
 socket timeouts (`OTA_MAX_RECV_STALLS` × `recv_wait_timeout`) and aborts, or a
 dropped upload spins the single httpd worker forever with the display latched
-blank and the device needs a power cycle (learned the hard way).
+blank and the device needs a power cycle (learned the hard way). The bound is 6 × 10 s.
+(3) **Weak WiFi:** at −87 dBm an upload stalled out within ~200 KB, three
+times in a row. So `ota_radio_boost(true)` gives WiFi the one shared radio for
+the duration: `blescan_pause(true)` stops the BLE scan, and power-save goes to
+`WIFI_PS_NONE`. Every failure path goes through `ota_fail()`, which undoes the
+display hold and the radio boost. Add new failure exits through it too.
 
 **The web UI is behind a login** (HTTP Basic auth, `OTA_USERNAME`/`OTA_PASSWORD`
 from `secrets.h`, compiled in, NOT in NVS, so factory reset doesn't clear it).

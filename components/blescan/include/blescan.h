@@ -9,11 +9,16 @@
 // the one radio via software coexistence (enabled in sdkconfig).
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include "settings.h"
 
 // Bring up NimBLE and start the perpetual passive scan. Call once at boot.
 void blescan_start(void);
+
+// Stop (true) / resume (false) the scan, so a firmware upload gets the shared
+// radio to itself. Safe from any task, and before the BLE host is up.
+void blescan_pause(bool pause);
 
 // Cache which temperature slots are assigned to a Shelly MAC, so the scan
 // callback can route matching advertisements. Call at boot and whenever settings

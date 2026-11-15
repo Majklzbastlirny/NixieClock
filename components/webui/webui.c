@@ -24,6 +24,7 @@
 #include "esp_http_server.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
+#include "esp_wifi.h"
 #include "esp_log.h"
 #include "mbedtls/base64.h"
 
@@ -574,9 +575,41 @@ static esp_err_t netset_post(httpd_req_t *req)
 }
 
 // Give up on a stalled upload after this many back-to-back recv timeouts
-// (each = OTA_RECV_TIMEOUT_S). ~30 s total before we abort and recover.
+// (each = OTA_RECV_TIMEOUT_S). ~60 s total before we abort and recover: long
+// enough to ride out a weak link's dropouts, short enough not to hang.
 #define OTA_RECV_TIMEOUT_S    10
-#define OTA_MAX_RECV_STALLS    3
+#define OTA_MAX_RECV_STALLS    6
+
+// While an upload runs, give WiFi the radio: stop the BLE scan (the ESP32 has
+// ONE radio, time-sliced between WiFi and BLE by coexistence) and turn WiFi
+// power-save off (with modem sleep the AP holds our frames until the next
+// beacon). At -87 dBm the default setup stalled out within ~200 KB.
+static wifi_ps_type_t s_ota_saved_ps = WIFI_PS_MIN_MODEM;
+
+static void ota_radio_boost(bool on)
+{
+    if (on) {
+        blescan_pause(true);
+        if (esp_wifi_get_ps(&s_ota_saved_ps) != ESP_OK) s_ota_saved_ps = WIFI_PS_MIN_MODEM;
+        esp_wifi_set_ps(WIFI_PS_NONE);
+    } else {
+        esp_wifi_set_ps(s_ota_saved_ps);
+        blescan_pause(false);
+    }
+}
+
+// A failed upload: drop the partial image (`ota` 0 = none open), give the
+// display and the radio back, and report. The running firmware stays active.
+static esp_err_t ota_fail(httpd_req_t *req, esp_ota_handle_t ota,
+                          httpd_err_code_t code, const char *msg)
+{
+    if (ota) esp_ota_abort(ota);
+    nixie_hold_off(false);
+    ota_radio_boost(false);
+    ESP_LOGW(TAG, "OTA failed: %s", msg);
+    httpd_resp_send_err(req, code, msg);
+    return ESP_OK;
+}
 
 // Firmware OTA: the raw firmware.bin is streamed in the POST body, written to
 // the inactive OTA slot, and the device reboots into it. Runs on the httpd
@@ -595,16 +628,14 @@ static esp_err_t ota_post(httpd_req_t *req)
 
     // Blank the tubes for the whole flash: the writes below stall the CPU/cache
     // in bursts, which otherwise makes the multiplexed display glitch badly.
-    // Cleared again only on failure — on success we reboot.
+    // Cleared again only on failure (ota_fail) — on success we reboot.
     nixie_hold_off(true);
+    ota_radio_boost(true);
 
     esp_ota_handle_t ota = 0;
     esp_err_t err = esp_ota_begin(part, OTA_SIZE_UNKNOWN, &ota);
-    if (err != ESP_OK) {
-        nixie_hold_off(false);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
-        return ESP_OK;
-    }
+    if (err != ESP_OK)
+        return ota_fail(req, 0, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
 
     char buf[2048];
     int remaining = req->content_len;
@@ -616,42 +647,24 @@ static esp_err_t ota_post(httpd_req_t *req)
             // Each timeout is recv_wait_timeout seconds (set in webui_start).
             // Give up after a handful so a dropped Wi-Fi upload aborts cleanly
             // and the device stays on the current firmware instead of hanging.
-            if (++stalls > OTA_MAX_RECV_STALLS) {
-                esp_ota_abort(ota);
-                nixie_hold_off(false);
-                httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "upload stalled");
-                return ESP_OK;
-            }
+            if (++stalls > OTA_MAX_RECV_STALLS)
+                return ota_fail(req, ota, HTTPD_408_REQ_TIMEOUT, "upload stalled");
             continue;
         }
         stalls = 0;
-        if (r <= 0) {
-            esp_ota_abort(ota);
-            nixie_hold_off(false);
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "recv error");
-            return ESP_OK;
-        }
-        if (esp_ota_write(ota, buf, r) != ESP_OK) {
-            esp_ota_abort(ota);
-            nixie_hold_off(false);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "flash write failed");
-            return ESP_OK;
-        }
+        if (r <= 0)
+            return ota_fail(req, ota, HTTPD_400_BAD_REQUEST, "recv error");
+        if (esp_ota_write(ota, buf, r) != ESP_OK)
+            return ota_fail(req, ota, HTTPD_500_INTERNAL_SERVER_ERROR, "flash write failed");
         remaining -= r;
     }
 
-    err = esp_ota_end(ota);
-    if (err != ESP_OK) {
-        nixie_hold_off(false);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                            err == ESP_ERR_OTA_VALIDATE_FAILED ? "bad image" : esp_err_to_name(err));
-        return ESP_OK;
-    }
-    if (esp_ota_set_boot_partition(part) != ESP_OK) {
-        nixie_hold_off(false);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "set boot failed");
-        return ESP_OK;
-    }
+    err = esp_ota_end(ota);   // frees the handle either way, so pass 0 below
+    if (err != ESP_OK)
+        return ota_fail(req, 0, HTTPD_400_BAD_REQUEST,
+                        err == ESP_ERR_OTA_VALIDATE_FAILED ? "bad image" : esp_err_to_name(err));
+    if (esp_ota_set_boot_partition(part) != ESP_OK)
+        return ota_fail(req, 0, HTTPD_500_INTERNAL_SERVER_ERROR, "set boot failed");
 
     httpd_resp_sendstr(req, "OK");
     ESP_LOGW(TAG, "OTA complete, rebooting into %s", part->label);

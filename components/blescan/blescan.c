@@ -279,12 +279,15 @@ void blescan_apply_settings(const clock_settings_t *c)
 // ---- NimBLE plumbing -------------------------------------------------------
 static void start_scan(void);
 
+static volatile bool s_synced;   // NimBLE host is up, so scans can be started
+static volatile bool s_paused;   // blescan_pause(true): stay stopped, no auto-restart
+
 static int gap_event(struct ble_gap_event *e, void *arg)
 {
     (void)arg;
     if (e->type == BLE_GAP_EVENT_DISC)
         parse_adv(e->disc.addr.val, e->disc.rssi, e->disc.data, e->disc.length_data);
-    else if (e->type == BLE_GAP_EVENT_DISC_COMPLETE)
+    else if (e->type == BLE_GAP_EVENT_DISC_COMPLETE && !s_paused)
         start_scan();
     return 0;
 }
@@ -301,8 +304,22 @@ static void start_scan(void)
 static void on_sync(void)
 {
     ble_hs_util_ensure_addr(0);
-    start_scan();
+    s_synced = true;
+    if (!s_paused) start_scan();
     ESP_LOGI(TAG, "scanning for BTHome v2 advertisements");
+}
+
+void blescan_pause(bool pause)
+{
+    s_paused = pause;
+    if (!s_synced) return;   // host not up (or BLE failed to start): nothing to stop
+    if (pause) {
+        if (ble_gap_disc_active()) ble_gap_disc_cancel();
+        ESP_LOGI(TAG, "scan paused");
+    } else if (!ble_gap_disc_active()) {
+        start_scan();
+        ESP_LOGI(TAG, "scan resumed");
+    }
 }
 
 static void host_task(void *param)
