@@ -53,7 +53,9 @@ The clock can be set up entirely from your phone, no cable needed:
    someone standing at the clock can set it up.)
 4. A setup page opens automatically. Pick your home WiFi, type its password,
    press save.
-5. The clock reboots and connects to your network. Done.
+5. The clock reboots and connects to your network. Done. If your network has
+   several access points (mesh, extenders, an outdoor AP), it scans them all and
+   joins the strongest one, every time it (re)connects.
 
 > Lost track of the clock's address later? **Tap button 5 once** and it spells
 > out its IP address on the tubes.
@@ -405,7 +407,9 @@ Hodiny se dají nastavit celé z telefonu, bez kabelu:
    nich stojí.)
 4. Automaticky se otevře stránka nastavení. Vyberte svou domácí WiFi, zadejte
    heslo, uložte.
-5. Hodiny se restartují a připojí k vaší síti. Hotovo.
+5. Hodiny se restartují a připojí k vaší síti. Hotovo. Pokud má vaše síť víc
+   přístupových bodů (mesh, extendery, venkovní AP), hodiny je proskenují všechny
+   a připojí se k nejsilnějšímu, a to při každém (znovu)připojení.
 
 > Zapomněli jste později adresu hodin? **Ťukněte jednou na tlačítko 5** a hodiny
 > vypíší svou IP adresu na tubicích.

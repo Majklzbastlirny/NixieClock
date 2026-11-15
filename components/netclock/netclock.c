@@ -55,12 +55,20 @@ static void start_sntp_once(void)
 static void wifi_event_handler(void *arg, esp_event_base_t base,
                                int32_t id, void *data)
 {
-    (void)arg; (void)data;
+    (void)arg;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+        // Which AP we picked, so a multi-AP/mesh choice is visible in the log.
+        const wifi_event_sta_connected_t *ev = data;
+        wifi_ap_record_t ap;
+        int rssi = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) ? ap.rssi : 0;
+        ESP_LOGI(TAG, "joined AP %02x:%02x:%02x:%02x:%02x:%02x ch %u, RSSI %d dBm",
+                 ev->bssid[0], ev->bssid[1], ev->bssid[2], ev->bssid[3],
+                 ev->bssid[4], ev->bssid[5], ev->channel, rssi);
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         ESP_LOGW(TAG, "WiFi disconnected, retrying");
-        esp_wifi_connect();
+        esp_wifi_connect();   // rescans all channels -> strongest AP again
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "got IP, starting time sync");
         start_sntp_once();
@@ -92,6 +100,12 @@ void netclock_start(void)
     strncpy((char *)sta.sta.ssid, nc.wifi_ssid, sizeof(sta.sta.ssid) - 1);
     strncpy((char *)sta.sta.password, nc.wifi_pass, sizeof(sta.sta.password) - 1);
     sta.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    // Scan every channel and join the STRONGEST AP with this SSID. The default
+    // fast scan joins the first match it hears, which on a multi-AP/mesh network
+    // can be a far one: it picked an outdoor AP at -87 dBm over one 4 m away.
+    // Costs ~1-2 s more per (re)connect.
+    sta.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    sta.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta));
